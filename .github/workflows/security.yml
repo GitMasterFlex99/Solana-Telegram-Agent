@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -22,7 +24,7 @@ jobs:
       - name: Validate package manifest
         run: npm pkg get name version
 
-      - name: Install dependencies and create lockfile
+      - name: Resolve dependencies into a lockfile
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
       - name: Install exact resolved dependencies
