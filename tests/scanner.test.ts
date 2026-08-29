@@ -41,4 +41,23 @@ describe("scanner foundation", () => {
     const weak = base({ baseToken: { address: "weak" }, liquidity: { usd: 12_000 }, volume: { h24: 12_000 }, txns: { h24: { buys: 10, sells: 90 } } });
     expect(opportunityScore(strong)).toBeGreaterThan(opportunityScore(weak));
   });
+
+  it("returns momentum and uses it in the final ranking score", () => {
+    const accelerating = base({
+      baseToken: { address: "accelerating" },
+      previous: { volume24hUsd: 50_000, liquidityUsd: 40_000 },
+      volume: { h24: 150_000 },
+      liquidity: { usd: 60_000 },
+      txns: { h24: { buys: 80, sells: 20 } },
+    });
+    const flat = base({
+      baseToken: { address: "flat" },
+      previous: { volume24hUsd: 100_000, liquidityUsd: 50_000 },
+      txns: { h24: { buys: 50, sells: 50 } },
+    });
+    const result = filterAndRankPairs([flat, accelerating], { minLiquidityUsd: 10_000, minVolume24hUsd: 10_000, minAgeHours: 0, allowVeryNew: true }, Date.now());
+    expect(result[0].baseToken?.address).toBe("accelerating");
+    expect(result[0].momentum.score).toBeGreaterThan(result[1].momentum.score);
+    expect(result[0].opportunityScore).toBeGreaterThan(result[1].opportunityScore);
+  });
 });
