@@ -13,13 +13,27 @@ A simple, mobile-first Solana research assistant with Telegram as the primary in
 
 ## Current status
 
-Read-only MVP. Telegram scans public Solana market data. The mobile web shell contains the wallet UX, but real wallet connection, trading and signing remain disabled until the security and devnet gates pass.
+Read-only MVP. Telegram scans public Solana market data. The mobile web shell contains the wallet UX and security scaffolding, but transaction execution remains disabled until the devnet, simulation, authorization, and security release gates pass.
+
+## Repository layout
+
+- `src/core/` — market, AI, Jupiter, risk, social, and transaction-intent logic.
+- `src/security/` — authorization, rate limiting, transaction policy, and other security boundaries.
+- `src/web/` — web-facing integration code.
+- `web/` — mobile-first Vite application.
+- `tests/` — automated security and transaction-intent tests.
+- `docs/` — architecture, integration, testing, roadmap, and security documentation.
+- `.github/workflows/` — CI security checks.
 
 ## Security
 
 The Telegram bot fails closed unless `TELEGRAM_ALLOWED_USER_IDS` contains the user's Telegram ID. `TELEGRAM_CHAT_ID` can further restrict access to one chat. Rate limiting is applied per user/chat pair.
 
-Never put a seed phrase or private key in Telegram, `.env`, browser storage, URLs, logs or source code.
+Never put a seed phrase or private key in Telegram, `.env`, browser storage, URLs, logs, or source code.
+
+Mainnet transaction execution is currently blocked. The security release gate is the authority for enabling it; a missing required control keeps trading disabled.
+
+See `SECURITY.md` for vulnerability reporting and `docs/security/` for the technical security controls and release gates.
 
 ## Run the Telegram bot
 
@@ -33,25 +47,25 @@ Never put a seed phrase or private key in Telegram, `.env`, browser storage, URL
 
 ## Run the mobile web shell
 
-The web UI is in `web/` and is designed for a phone first. Build it with Vite from the repository root:
+The web UI is in `web/` and is designed for a phone first.
 
 ```bash
-npx vite build --config web/vite.config.ts
+npm run web:build
 ```
 
 The wallet button is intentionally non-functional until the real Wallet Standard integration has passed the devnet and security gates. The UI must never imply that a wallet is connected when it is not.
 
-## Security CI
+## Quality and security checks
 
-The security workflow resolves the pinned direct dependencies into a temporary lockfile, installs that exact resolved tree with `npm ci`, then runs TypeScript checks, tests, a high-severity dependency audit and secret scanning.
+```bash
+npm run typecheck
+npm run web:build
+npm test
+npm audit --audit-level=high
+```
 
-A committed lockfile should be added before production release so dependency resolution is reproducible across machines and CI runs.
+CI runs the typecheck, production web build, tests, high-severity dependency audit, and secret scanning. Because the repository does not yet commit a lockfile, CI currently resolves the dependency tree into a temporary lockfile before running `npm ci`. A committed lockfile should be added before production release for fully reproducible installs.
 
 ## Roadmap
 
-1. Better token discovery and risk filters.
-2. Useful social/CT signals.
-3. Real mobile wallet connection using Wallet Standard/mobile wallet flows.
-4. Optional BYOK AI analysis.
-5. Jupiter quote + transaction preparation.
-6. Simulation and explicit wallet approval.
+See `docs/roadmap.md` for the current implementation roadmap and `docs/security/release-gate.md` for the mainnet transaction release criteria.
