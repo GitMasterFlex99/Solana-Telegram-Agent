@@ -1,8 +1,8 @@
 import { Bot, InlineKeyboard } from "grammy";
-import { filterAndRankPairs, type ScannerPair } from "./core/scanner.js";
+import { filterAndRankPairs, type ScannerPair, type ScannerResult } from "./core/scanner.js";
 import { assessCombinedRisk } from "./core/combined-risk.js";
 import { inspectToken } from "./core/onchain-safety.js";
-import { getRiskProfileConfig, parseRiskProfile, type RiskProfile } from "./core/risk-profile.js";
+import { getRiskProfileConfig, type RiskProfile } from "./core/risk-profile.js";
 import { isAuthorized, parseAllowedUserIds } from "./security/telegram-auth.js";
 import { RateLimiter } from "./security/rate-limit.js";
 
@@ -16,16 +16,16 @@ if (!solanaRpcUrl) throw new Error("Missing SOLANA_RPC_URL");
 const bot = new Bot(token);
 const limiter = new RateLimiter(10_000, 5);
 const profiles = new Map<number, RiskProfile>();
-const scannedPairs = new Map<string, ScannerPair>();
+const scannedPairs = new Map<string, ScannerResult>();
 const MAX_SCANNED_PAIRS = 50;
 const profileFor = (id?: number): RiskProfile => profiles.get(id ?? 0) ?? "balanced";
 function guard(ctx: { chat?: { id: number }; from?: { id: number } }) { if (!isAuthorized({ chatId: ctx.chat?.id, userId: ctx.from?.id }, allowedUserIds, allowedChatId)) return false; return !limiter.isLimited(`${ctx.from?.id}:${ctx.chat?.id ?? "private"}`); }
-function rememberPair(pair: ScannerPair) { const address=pair.baseToken?.address; if(!address)return; scannedPairs.delete(address); scannedPairs.set(address,pair); while(scannedPairs.size>MAX_SCANNED_PAIRS){const oldest=scannedPairs.keys().next().value;if(oldest)scannedPairs.delete(oldest);else break;} }
+function rememberPair(pair: ScannerResult) { const address=pair.baseToken?.address; if(!address)return; scannedPairs.delete(address); scannedPairs.set(address,pair); while(scannedPairs.size>MAX_SCANNED_PAIRS){const oldest=scannedPairs.keys().next().value;if(oldest)scannedPairs.delete(oldest);else break;} }
 const money=(n?:number)=>!Number.isFinite(n)?"—":n!>=1e6?`$${(n!/1e6).toFixed(1)}M`:n!>=1e3?`$${(n!/1e3).toFixed(1)}K`:`$${n!.toFixed(0)}`;
 const age=(ts?:number)=>{if(!ts)return"unknown";const h=Math.max(0,(Date.now()-ts)/3_600_000);return h<24?`${h.toFixed(0)}h`:`${(h/24).toFixed(1)}d`;};
 const menu=()=>new InlineKeyboard().text("🔎 Scan","scan").row().text("💼 Portfolio","portfolio").text("⚙️ Settings","settings").row().text("ℹ️ Help","help");
 const settingsMenu=(profile:RiskProfile)=>new InlineKeyboard().text(profile==="conservative"?"✓ 🟢 Conservative":"🟢 Conservative","risk:conservative").row().text(profile==="balanced"?"✓ 🟡 Balanced":"🟡 Balanced","risk:balanced").row().text(profile==="aggressive"?"✓ 🔴 Aggressive":"🔴 Aggressive","risk:aggressive").row().text("← Back","home");
-async function scan(profile:RiskProfile){const c=getRiskProfileConfig(profile),controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);try{const r=await fetch("https://api.dexscreener.com/latest/dex/search?q=SOL",{signal:controller.signal});if(!r.ok)throw new Error("Market data unavailable");const d=await r.json() as {pairs?:ScannerPair[]};if(!Array.isArray(d.pairs))return[];return filterAndRankPairs(d.pairs,c,Date.now(),5);}finally{clearTimeout(timeout);}}
+async function scan(profile:RiskProfile): Promise<ScannerResult[]> { const c=getRiskProfileConfig(profile),controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);try{const r=await fetch("https://api.dexscreener.com/latest/dex/search?q=SOL",{signal:controller.signal});if(!r.ok)throw new Error("Market data unavailable");const d=await r.json() as {pairs?:ScannerPair[]};if(!Array.isArray(d.pairs))return[];return filterAndRankPairs(d.pairs,c,Date.now(),5);}finally{clearTimeout(timeout);}}
 async function sendScan(ctx:any){const profile=profileFor(ctx.from?.id);await ctx.reply(`🔎 Scanning with ${profile} risk settings...`);try{const pairs=await scan(profile);if(!pairs.length){await ctx.reply("No candidates passed the current filters.",{reply_markup:menu()});return;}for(const[pidx,p]of pairs.entries()){rememberPair(p);const buys=p.txns?.h24?.buys??0,sells=p.txns?.h24?.sells??0,address=p.baseToken?.address;const text=[`${pidx+1}. ${p.baseToken?.symbol??"Unknown"} — ${p.opportunityScore}/100`,`Liquidity: ${money(p.liquidity?.usd)}   Volume: ${money(p.volume?.h24)}`,`24h: ${p.priceChange?.h24?.toFixed(1)??"—"}%   Buys/Sells: ${buys}/${sells}`,`Momentum: ${p.momentum.score}/100   Age: ${age(p.pairCreatedAt)}`,p.url?`Market: ${p.url}`:"","⚠️ Opportunity score only — not a safety score or buy signal."].filter(Boolean).join("\n");await ctx.reply(text,{reply_markup:address?new InlineKeyboard().text("Analyze",`analyze:${address}`):menu()});}await ctx.reply("Use Analyze for the full risk breakdown. Trading is disabled.",{reply_markup:menu()});}catch{console.error("market scan failed");await ctx.reply("Couldn't fetch market data right now. Try again later.",{reply_markup:menu()});}}
 async function showSettings(ctx:any){const p=profileFor(ctx.from?.id);await ctx.reply(`⚙️ Settings\n\nRisk level controls how strict the scanner filters are.\n\nCurrent: ${p}\n\nAggressive never disables risk warnings.`,{reply_markup:settingsMenu(p)});}
 bot.command("start",async ctx=>{if(!guard(ctx))return;await ctx.reply("Solana Meme Agent\n\nSimple by design. I scan first; you stay in control.\n\nTrading is disabled for now.",{reply_markup:menu()});});
