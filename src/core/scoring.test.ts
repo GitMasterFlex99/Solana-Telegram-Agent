@@ -10,14 +10,14 @@ test("pairAgeHours calculates age", () => {
 });
 
 test("score stays within 0-100", () => {
-  assert.ok(score({}) >= 0);
-  assert.ok(score({ liquidity: { usd: 1_000_000 }, volume: { h24: 2_000_000 }, txns: { h24: { buys: 100, sells: 10 } }, priceChange: { h24: 20 }, fdv: 10_000_000 }) <= 100);
+  assert.ok(score({}, now) >= 0);
+  assert.ok(score({ liquidity: { usd: 1_000_000 }, volume: { h24: 2_000_000 }, txns: { h24: { buys: 100, sells: 10 } }, priceChange: { h24: 20 }, fdv: 10_000_000 }, now) <= 100);
 });
 
 test("new pairs receive a score penalty", () => {
   const oldPair = { liquidity: { usd: 100_000 }, volume: { h24: 500_000 }, priceChange: { h24: 20 }, pairCreatedAt: now - 24 * 3_600_000 };
   const newPair = { ...oldPair, pairCreatedAt: now - 30 * 60_000 };
-  assert.ok(score(newPair) < score(oldPair));
+  assert.ok(score(newPair, now) < score(oldPair, now));
 });
 
 test("risk flags detect basic hazards", () => {
