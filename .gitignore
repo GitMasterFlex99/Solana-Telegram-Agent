@@ -1,6 +1,9 @@
 node_modules/
 dist/
 web/dist/
+coverage/
+.vite/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
