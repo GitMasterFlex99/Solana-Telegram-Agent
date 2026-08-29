@@ -39,6 +39,7 @@ export type PaperSnapshot = {
 };
 
 const DEFAULTS: PaperTraderConfig = { startingBalanceUsd: 10_000, positionSizeUsd: 100, takeProfitPct: 25, stopLossPct: 15, maxOpenPositions: 10 };
+const THRESHOLD_EPSILON = 1e-9;
 const finitePositive = (value: number) => Number.isFinite(value) && value > 0;
 
 export class PaperTrader {
@@ -70,8 +71,8 @@ export class PaperTrader {
     const position = this.positions.get(id);
     if (!position || position.status !== "open" || !finitePositive(priceUsd)) return null;
     const changePct = ((priceUsd - position.entryPriceUsd) / position.entryPriceUsd) * 100;
-    if (changePct >= this.config.takeProfitPct) return this.close(id, priceUsd, "take-profit", now);
-    if (changePct <= -this.config.stopLossPct) return this.close(id, priceUsd, "stop-loss", now);
+    if (changePct + THRESHOLD_EPSILON >= this.config.takeProfitPct) return this.close(id, priceUsd, "take-profit", now);
+    if (changePct - THRESHOLD_EPSILON <= -this.config.stopLossPct) return this.close(id, priceUsd, "stop-loss", now);
     position.currentPriceUsd = priceUsd;
     return { ...position };
   }
