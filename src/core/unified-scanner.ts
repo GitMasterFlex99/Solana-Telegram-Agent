@@ -5,6 +5,9 @@ export type UnifiedCandidate =
   | ({ source: "dexscreener" } & ScannerResult)
   | ({ source: "pumpfun" } & PumpfunScannerResult);
 
+const addressOf = (candidate: UnifiedCandidate): string | undefined =>
+  candidate.source === "pumpfun" ? candidate.address : candidate.baseToken?.address;
+
 export function mergeScannerResults(
   marketResults: ScannerResult[],
   pumpfunResults: PumpfunScannerResult[],
@@ -15,7 +18,7 @@ export function mergeScannerResults(
   const seen = new Set<string>();
   return [...market, ...pump]
     .filter((candidate) => {
-      const address = candidate.baseToken?.address ?? (candidate.source === "pumpfun" ? candidate.address : undefined);
+      const address = addressOf(candidate);
       if (!address || seen.has(address)) return false;
       seen.add(address);
       return true;
