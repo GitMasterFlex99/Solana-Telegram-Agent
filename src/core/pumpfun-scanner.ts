@@ -2,11 +2,11 @@ import { assessPumpfunSignal, type PumpfunCoin, type PumpfunSignal } from "./pum
 
 export type PumpfunScannerResult = PumpfunCoin & { pumpfunSignal: PumpfunSignal; opportunityScore: number };
 
-export function rankPumpfunCoins(coins: PumpfunCoin[], limit = 10): PumpfunScannerResult[] {
+export function rankPumpfunCoins(coins: PumpfunCoin[], limit = 10, now = Date.now()): PumpfunScannerResult[] {
   return coins
     .map((coin) => {
-      const signal = assessPumpfunSignal(coin);
-      const ageHours = Math.max(0, (Date.now() - coin.createdAt) / 3_600_000);
+      const signal = assessPumpfunSignal(coin, now);
+      const ageHours = Math.max(0, (now - coin.createdAt) / 3_600_000);
       let score = signal.score;
       if (coin.stage === "bonding-curve" && ageHours <= 6) score += 8;
       if (coin.mayhemMode) score -= 10;
