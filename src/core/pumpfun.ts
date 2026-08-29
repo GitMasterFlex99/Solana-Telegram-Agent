@@ -15,10 +15,10 @@ export type PumpfunCoin = {
 
 export type PumpfunSignal = { score: number; flags: string[] };
 
-export function assessPumpfunSignal(coin: PumpfunCoin): PumpfunSignal {
+export function assessPumpfunSignal(coin: PumpfunCoin, now = Date.now()): PumpfunSignal {
   let score = 50;
   const flags: string[] = [];
-  const ageHours = Math.max(0, (Date.now() - coin.createdAt) / 3_600_000);
+  const ageHours = Math.max(0, (now - coin.createdAt) / 3_600_000);
   if (coin.stage === "bonding-curve") { score += 10; flags.push("Still on Pump.fun bonding curve"); }
   else if (coin.stage === "pumpswap") { score += 5; flags.push("Graduated to PumpSwap"); }
   if (ageHours <= 1) { score += 12; flags.push("Very early launch"); }
