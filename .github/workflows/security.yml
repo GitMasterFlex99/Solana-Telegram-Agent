@@ -1,0 +1,52 @@
+name: Security
+
+on:
+  pull_request:
+
+concurrency:
+  group: security-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Use npm 11 for dependency resolution
+        run: npm install --global npm@11.6.0
+
+      - name: Validate package manifest
+        run: npm pkg get name version
+
+      - name: Resolve dependencies into a lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install exact resolved dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
