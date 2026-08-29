@@ -12,7 +12,7 @@ export function pairAgeHours(pairCreatedAt?: number, now = Date.now()): number |
   return Math.max(0, (now - Number(pairCreatedAt)) / 3_600_000);
 }
 
-export function score(p: PairLike): number {
+export function score(p: PairLike, now = Date.now()): number {
   const liq = p.liquidity?.usd ?? 0;
   const vol = p.volume?.h24 ?? 0;
   const buys = p.txns?.h24?.buys ?? 0;
@@ -24,7 +24,7 @@ export function score(p: PairLike): number {
   if (buys + sells > 0 && buys > sells) s += Math.min(20, Math.round(buys / (buys + sells) * 20));
   if (change > 0 && change < 100) s += 10; else if (change >= 100) s += 4;
   if (liq > 0 && (p.fdv ?? 0) / liq < 100) s += 10;
-  const hours = pairAgeHours(p.pairCreatedAt);
+  const hours = pairAgeHours(p.pairCreatedAt, now);
   if (hours !== null && hours < 2) s -= 15;
   return Math.max(0, Math.min(100, s));
 }
