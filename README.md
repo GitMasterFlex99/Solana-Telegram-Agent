@@ -1,39 +1,45 @@
 # Solana Telegram Agent
 
-A deliberately simple Telegram interface for a small Solana meme-coin research experiment.
+A simple, mobile-first Solana research assistant with Telegram as the primary interface.
+
+## Principles
+
+- Free core research features; no artificial paywall.
+- Optional AI through the user's own API key.
+- Use an existing mainstream Solana wallet rather than forcing users into a separate wallet.
+- Wallet keys stay with the wallet; the bot never asks for a seed phrase/private key.
+- Mobile-first UI for analysis and future transaction approval.
+- Keep the product small: scan, analyze, watch, wallet, settings.
 
 ## Current status
 
-The bot is read-only. It scans public Solana market data through DexScreener and ranks candidates using simple liquidity, volume, activity, age and valuation checks.
+Read-only MVP. Telegram scans public Solana market data. A mobile web shell provides the intended wallet/token UX. Trading and signing are not enabled yet.
 
-Trading/signing is intentionally disabled. No seed phrase or private key is ever required by the bot.
+## Run the Telegram bot
 
-## Run locally
+1. Create a Telegram bot with BotFather.
+2. Copy `.env.example` to `.env` and set `TELEGRAM_BOT_TOKEN`.
+3. Optionally set `TELEGRAM_CHAT_ID` to restrict access.
+4. `npm install`
+5. `npm start`
+
+## Run the mobile web shell
+
+The web UI is in `web/` and is designed for a phone first. Build it with Vite from the repository root.
 
 ```bash
-npm install
-cp .env.example .env
-npm start
+npx vite build --config web/vite.config.ts
 ```
 
-Set `TELEGRAM_BOT_TOKEN` in `.env`. `TELEGRAM_CHAT_ID` is optional but recommended for a private bot.
-
-## Bot interface
-
-- `/start` — main menu
-- `/scan` — scan current candidates
-- `/portfolio` — portfolio placeholder
-- `/help` — safety/help
-
-The interface is intentionally button-first and minimal rather than trying to replicate a full-featured trading terminal.
+The current wallet button is a UI placeholder. Real Wallet Standard/mobile-wallet integration will be added before any transaction flow is enabled.
 
 ## Roadmap
 
-1. Stronger token safety checks.
-2. Token detail analysis.
-3. Jupiter quotes and transaction simulation.
-4. Explicit wallet approval/signing.
-5. Portfolio and trade history.
-6. Optional alerts.
+1. Better token discovery and risk filters.
+2. Useful social/CT signals.
+3. Real mobile wallet connection using Wallet Standard/mobile wallet flows.
+4. Optional BYOK AI analysis.
+5. Jupiter quote + transaction preparation.
+6. Simulation and explicit wallet approval.
 
-Never put a seed phrase or private key in source code, `.env`, Telegram, or chat.
+Never put a seed phrase or private key in Telegram or environment variables.
