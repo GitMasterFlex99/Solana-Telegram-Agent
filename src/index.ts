@@ -32,6 +32,7 @@ const score = (p: Pair) => {
 };
 const guard = (ctx:{chat?:{id:number}}) => !allowedChatId || String(ctx.chat?.id)===allowedChatId;
 const menu = () => new InlineKeyboard().text("🔎 Scan","scan").row().text("💼 Portfolio","portfolio").text("ℹ️ Help","help");
+const walletWarning = () => new InlineKeyboard().text("I understand","wallet_ack").row().text("Back","help");
 
 async function scan():Promise<Pair[]> {
   const r=await fetch("https://api.dexscreener.com/latest/dex/search?q=SOL");
@@ -55,10 +56,11 @@ async function sendScan(ctx:any){
 bot.command("start",async ctx=>{if(!guard(ctx))return;await ctx.reply("Solana Meme Agent\n\nSimple by design. I scan first; you stay in control.\n\nTrading is disabled for now.",{reply_markup:menu()});});
 bot.command("scan",async ctx=>{if(guard(ctx))await sendScan(ctx);});
 bot.command("portfolio",async ctx=>{if(guard(ctx))await ctx.reply("💼 No wallet is connected yet. Trading is disabled.",{reply_markup:menu()});});
-bot.command("help",async ctx=>{if(guard(ctx))await ctx.reply("Use the buttons or /scan.\n\nThe bot never asks for a seed phrase or private key. Real trades will require explicit wallet approval.",{reply_markup:menu()});});
+bot.command("help",async ctx=>{if(guard(ctx))await ctx.reply("Use the buttons or /scan.\n\nThe bot never asks for a seed phrase or private key.\n\nWhen trading is enabled, use a separate trading wallet in Phantom or another mainstream Solana wallet. Do not connect your main wallet. Keep only what you are comfortable losing in the trading wallet.",{reply_markup:menu()});});
 bot.callbackQuery("scan",async ctx=>{await ctx.answerCallbackQuery();if(guard(ctx))await sendScan(ctx);});
 bot.callbackQuery("portfolio",async ctx=>{await ctx.answerCallbackQuery();if(guard(ctx))await ctx.reply("💼 No wallet is connected yet. Trading is disabled.",{reply_markup:menu()});});
-bot.callbackQuery("help",async ctx=>{await ctx.answerCallbackQuery();if(guard(ctx))await ctx.reply("I scan public Solana market data and rank candidates using simple checks. Nothing is bought automatically.",{reply_markup:menu()});});
+bot.callbackQuery("help",async ctx=>{await ctx.answerCallbackQuery();if(guard(ctx))await ctx.reply("I scan public Solana market data and rank candidates using simple checks. Nothing is bought automatically.\n\nFor future trading: create a separate trading wallet in Phantom (or another mainstream Solana wallet). Do not connect your main wallet. Never share a seed phrase or private key.",{reply_markup:menu()});});
+bot.callbackQuery("wallet_ack",async ctx=>{await ctx.answerCallbackQuery();if(guard(ctx))await ctx.reply("Understood. Your main wallet should stay separate from the trading wallet. Wallet connection is not enabled yet.",{reply_markup:menu()});});
 bot.callbackQuery(/^analyze:(.+)$/,async ctx=>{await ctx.answerCallbackQuery();if(guard(ctx))await ctx.reply("Detailed token analysis is coming next. For now, inspect the market link in the scan result.",{reply_markup:menu()});});
 bot.catch(e=>console.error("Telegram bot error",e));
 await bot.api.setMyCommands([{command:"start",description:"Open the main menu"},{command:"scan",description:"Find Solana candidates"},{command:"portfolio",description:"View portfolio"},{command:"help",description:"Show help"}]);
