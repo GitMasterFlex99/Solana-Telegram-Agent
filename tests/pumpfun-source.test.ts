@@ -3,7 +3,8 @@ import { discoverPumpfun } from "../src/core/pumpfun-source.js";
 
 const MINT = "11111111111111111111111111111111";
 const response = (body: unknown, ok = true, status = 200): Response => ({
-  ok, status, json: async () => body,
+  ok, status,
+  json: async () => body,
 } as Response);
 
 describe("Pump.fun discovery source", () => {
