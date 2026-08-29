@@ -1,0 +1,26 @@
+import { strict as assert } from "node:assert";
+import test from "node:test";
+import { pairAgeHours, riskFlags, score } from "./scoring.js";
+
+const now = Date.UTC(2026, 0, 1);
+
+test("pairAgeHours calculates age", () => {
+  assert.equal(pairAgeHours(now - 3_600_000, now), 1);
+  assert.equal(pairAgeHours(undefined, now), null);
+});
+
+test("score stays within 0-100", () => {
+  assert.ok(score({}) >= 0);
+  assert.ok(score({ liquidity: { usd: 1_000_000 }, volume: { h24: 2_000_000 }, txns: { h24: { buys: 100, sells: 10 } }, priceChange: { h24: 20 }, fdv: 10_000_000 }) <= 100);
+});
+
+test("new pairs receive a score penalty", () => {
+  const oldPair = { liquidity: { usd: 100_000 }, volume: { h24: 500_000 }, priceChange: { h24: 20 }, pairCreatedAt: now - 24 * 3_600_000 };
+  const newPair = { ...oldPair, pairCreatedAt: now - 30 * 60_000 };
+  assert.ok(score(newPair) < score(oldPair));
+});
+
+test("risk flags detect basic hazards", () => {
+  const flags = riskFlags({ liquidity: { usd: 5_000 }, volume: { h24: 200_000 }, priceChange: { h24: 250 }, pairCreatedAt: now - 2 * 3_600_000 }, now);
+  assert.deepEqual(flags, ["low liquidity", "very high volume/liquidity", "very new pair", "extreme 24h move"]);
+});
