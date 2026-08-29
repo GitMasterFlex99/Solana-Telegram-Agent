@@ -21,6 +21,9 @@ export function assessRisk(m: MarketSnapshot): RiskResult {
   if (m.liquidityUsd < 10_000) { risk += 40; flags.push("Very low liquidity"); }
   else if (m.liquidityUsd < 25_000) { risk += 20; flags.push("Low liquidity"); }
 
+  if (m.volume24hUsd < 10_000) { risk += 15; flags.push("Very low 24h volume"); }
+  else if (m.volume24hUsd < 50_000) { risk += 7; flags.push("Low 24h volume"); }
+
   if (m.ageHours < 2) { risk += 30; flags.push("Very new pair"); }
   else if (m.ageHours < 12) { risk += 12; flags.push("New pair"); }
 
