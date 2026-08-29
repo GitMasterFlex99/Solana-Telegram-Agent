@@ -9,6 +9,8 @@ import { type RiskProfile } from "./core/risk-profile.js";
 import { RiskProfileStore } from "./core/risk-profile-store.js";
 import { WatchlistStore } from "./core/watchlist-store.js";
 import { detectAlert, snapshotFromPair, type AlertSnapshot } from "./core/alert-rules.js";
+import { AlertStateStore } from "./core/alert-state-store.js";
+import { evaluateWatchlist } from "./core/watchlist-monitor.js";
 import { applySafetyGate } from "./core/safety-gate.js";
 import { isAuthorized, parseAllowedUserIds } from "./security/telegram-auth.js";
 import { RateLimiter } from "./security/rate-limit.js";
@@ -25,9 +27,11 @@ const bot = new Bot(token);
 const limiter = new RateLimiter(10_000, 5);
 const riskProfiles = new RiskProfileStore(process.env.RISK_PROFILE_FILE ?? "data/risk-profiles.json");
 const watchlists = new WatchlistStore(process.env.WATCHLIST_FILE ?? "data/watchlists.json");
+const alertStates = new AlertStateStore(process.env.ALERT_STATE_FILE ?? "data/alert-state.json");
 const scannedPairs = new Map<string, PipelineResult & { xPosts?: XPost[] }>();
 const snapshots = new Map<string, AlertSnapshot>();
 const MAX_SCANNED_PAIRS = 50;
+const WATCH_INTERVAL_MS = 5 * 60_000;
 const profileFor = async (id?: number): Promise<RiskProfile> => id ? riskProfiles.get(id) : "balanced";
 function guard(ctx: { chat?: { id: number }; from?: { id: number } }) { if (!isAuthorized({ chatId: ctx.chat?.id, userId: ctx.from?.id }, allowedUserIds, allowedChatId)) return false; return !limiter.isLimited(`${ctx.from?.id}:${ctx.chat?.id ?? "private"}`); }
 function rememberPair(pair: PipelineResult & { xPosts?: XPost[] }) { const address=pair.baseToken?.address; if(!address)return; scannedPairs.delete(address); scannedPairs.set(address,pair); while(scannedPairs.size>MAX_SCANNED_PAIRS){const oldest=scannedPairs.keys().next().value;if(oldest)scannedPairs.delete(oldest);else break;} }
@@ -42,6 +46,7 @@ async function sendScan(ctx:any){const profile=await profileFor(ctx.from?.id);aw
 const source=p.source==="pumpfun"?`Pump.fun · ${p.pumpfunStage??"unknown"}${p.pumpfunMayhemMode?" · Mayhem Mode":""}`:"DexScreener";const socialText=xBearerToken?`X signal: ${intelligence.x.score}/100 (${intelligence.x.confidence})`:`X signal: unavailable`;const text=[`${pidx+1}. ${p.baseToken?.symbol??"Unknown"} — ${candidateLabel(candidate.classification)}`,`Source: ${source}`,`Intelligence ${intelligence.score}/100 · Opportunity ${p.opportunityScore}/100`,`Momentum ${p.momentum.score}/100 · ${socialText}`,`Liquidity: ${money(p.liquidity?.usd)}   Volume: ${money(p.volume?.h24)}`,`24h: ${p.priceChange?.h24?.toFixed(1)??"—"}%   Age: ${age(p.pairCreatedAt)}`,`Why: ${intelligence.reasons.slice(0,2).join(" · ")}`,p.source==="pumpfun"&&p.pumpfunMayhemMode?"⚠️ Mayhem Mode can distort early price action.":"","⚠️ Intelligence is not safety and is not a buy signal."].filter(Boolean).join("\n");await ctx.reply(text,{reply_markup:address?new InlineKeyboard().text("Analyze safety",`analyze:${address}`).text("＋ Watch",`watch:${address}`):menu()});}await ctx.reply("Analyze safety before considering any candidate. Trading is disabled.",{reply_markup:menu()});}catch(error){console.error("market scan failed",error);await ctx.reply("Couldn't fetch market data right now. Try again later.",{reply_markup:menu()});}}
 async function showWatchlist(ctx:any){const items=await watchlists.list(ctx.from.id);if(!items.length){await ctx.reply("👁 Watchlist is empty. Use ＋ Watch on a scan result.",{reply_markup:menu()});return;}const keyboard=new InlineKeyboard();items.forEach((x,i)=>{keyboard.text(`${i+1}. ${x.label??x.address.slice(0,8)}…`,`watchinfo:${x.address}`).text("×",`unwatch:${x.address}`).row();});keyboard.text("← Back","home");await ctx.reply("👁 Watchlist\n\nSelect a token to inspect or × to remove it.",{reply_markup:keyboard});}
 async function showSettings(ctx:any){const p=await profileFor(ctx.from?.id);await ctx.reply(`⚙️ Settings\n\nRisk level controls how strict the scanner filters are.\n\nCurrent: ${p}\n\nAggressive never disables risk warnings. Your setting is saved across restarts.`,{reply_markup:settingsMenu(p)});}
+async function monitorWatchlists() { try { const userIds=await watchlists.userIds(); if(!userIds.length)return; const grouped=new Map<RiskProfile,number[]>(); for(const userId of userIds){const profile=await profileFor(userId);const users=grouped.get(profile)??[];users.push(userId);grouped.set(profile,users);} for(const [profile,users] of grouped){ let pairs:PipelineResult[]=[]; try{pairs=await scanSources(profile);}catch(error){console.error("watchlist scan failed",error);continue;} for(const userId of users){const items=await watchlists.list(userId);const previous=new Map<string,AlertSnapshot>();for(const item of items){const snapshot=await alertStates.get(`${userId}:${item.address}`);if(snapshot)previous.set(item.address,snapshot);}const alerts=evaluateWatchlist(userId,items,pairs,previous);for(const item of items){const snapshot=previous.get(item.address);if(snapshot)await alertStates.set(`${userId}:${item.address}`,snapshot);}for(const alert of alerts){await bot.api.sendMessage(userId,`🔔 Watchlist: ${alert.pair.baseToken?.symbol??alert.item.label??"Token"}\n${alertText(alert.events)}\nOpportunity ${alert.pair.opportunityScore}/100 · Momentum ${alert.pair.momentum.score}/100\nSource: ${alert.pair.source}\n\nScreening alert only — run a fresh safety analysis before considering any action.`);}}}} catch(error){console.error("watchlist monitor failed",error);} }
 bot.command("start",async ctx=>{if(!guard(ctx))return;await ctx.reply("Solana Meme Agent\n\nSimple by design. I scan first; you stay in control.\n\nTrading is disabled for now.",{reply_markup:menu()});});
 bot.command("scan",async ctx=>{if(guard(ctx))await sendScan(ctx);});
 bot.command("watchlist",async ctx=>{if(guard(ctx))await showWatchlist(ctx);});
@@ -62,4 +67,8 @@ bot.callbackQuery(/^analyze:(.+)$/,async ctx=>{if(!guard(ctx)){await ctx.answerC
 bot.catch(e=>console.error("Telegram bot error",e));
 await bot.api.setMyCommands([{command:"start",description:"Open the main menu"},{command:"scan",description:"Find Solana candidates"},{command:"watchlist",description:"View watched tokens"},{command:"portfolio",description:"View portfolio"},{command:"settings",description:"Scanner settings"},{command:"help",description:"Show help"}]);
 console.log("Solana Telegram Agent running");
+const monitorTimer = setInterval(() => void monitorWatchlists(), WATCH_INTERVAL_MS);
+void monitorWatchlists();
 await bot.start();
+process.on("SIGINT",()=>clearInterval(monitorTimer));
+process.on("SIGTERM",()=>clearInterval(monitorTimer));
