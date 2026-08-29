@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard } from "grammy";
-import { isAuthorized, parseAllowedUserIds } from "./security/telegram-auth";
-import { RateLimiter } from "./security/rate-limit";
+import { isAuthorized, parseAllowedUserIds } from "./security/telegram-auth.js";
+import { RateLimiter } from "./security/rate-limit.js";
 
 type Pair = {
   chainId?: string; url?: string;
