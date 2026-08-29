@@ -1,46 +1,33 @@
-import { PaperTrader, type PaperPosition, type PaperSignal, type PaperSnapshot, type PaperTraderConfig } from "./paper-trader.js";
+import { PaperPortfolioStore } from "./paper-portfolio-store.js";
+import type { PaperPosition, PaperSignal, PaperSnapshot, PaperTraderConfig } from "./paper-trader.js";
 
-export type PaperPortfolio = {
-  userId: number;
-  trader: PaperTrader;
-};
+export type PaperPortfolio = { userId: number };
 
+/** Persistent per-user paper portfolio facade. No wallet, signer, or transaction APIs are exposed. */
 export class PaperPortfolioManager {
-  private readonly portfolios = new Map<number, PaperTrader>();
-  private readonly config: Partial<PaperTraderConfig>;
+  private readonly store: PaperPortfolioStore;
 
-  constructor(config: Partial<PaperTraderConfig> = {}) {
-    this.config = { ...config };
+  constructor(config: Partial<PaperTraderConfig> = {}, file = process.env.PAPER_PORTFOLIO_FILE ?? "data/paper-portfolios.json") {
+    this.store = new PaperPortfolioStore(file, config);
   }
 
-  private get(userId: number): PaperTrader {
-    if (!Number.isSafeInteger(userId) || userId < 1) throw new Error("Invalid user id");
-    let trader = this.portfolios.get(userId);
-    if (!trader) {
-      trader = new PaperTrader(this.config);
-      this.portfolios.set(userId, trader);
-    }
-    return trader;
+  open(userId: number, signal: PaperSignal, now = Date.now()): Promise<PaperPosition | null> {
+    return this.store.open(userId, signal, now);
   }
 
-  open(userId: number, signal: PaperSignal, now = Date.now()): PaperPosition | null {
-    return this.get(userId).open(signal, now);
+  update(userId: number, positionId: string, priceUsd: number, now = Date.now()): Promise<PaperPosition | null> {
+    return this.store.update(userId, positionId, priceUsd, now);
   }
 
-  update(userId: number, positionId: string, priceUsd: number, now = Date.now()): PaperPosition | null {
-    return this.get(userId).update(positionId, priceUsd, now);
+  close(userId: number, positionId: string, priceUsd: number, now = Date.now()): Promise<PaperPosition | null> {
+    return this.store.close(userId, positionId, priceUsd, now);
   }
 
-  close(userId: number, positionId: string, priceUsd: number, now = Date.now()): PaperPosition | null {
-    return this.get(userId).close(positionId, priceUsd, "manual", now);
+  snapshot(userId: number): Promise<PaperSnapshot> {
+    return this.store.snapshot(userId);
   }
 
-  snapshot(userId: number): PaperSnapshot {
-    return this.get(userId).snapshot();
-  }
-
-  reset(userId: number): void {
-    if (!Number.isSafeInteger(userId) || userId < 1) throw new Error("Invalid user id");
-    this.portfolios.delete(userId);
+  reset(userId: number): Promise<void> {
+    return this.store.reset(userId);
   }
 }
