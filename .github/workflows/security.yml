@@ -1,8 +1,11 @@
 name: Security
 
 on:
-  push:
   pull_request:
+
+concurrency:
+  group: security-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
