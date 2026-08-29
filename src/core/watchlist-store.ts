@@ -24,6 +24,7 @@ export class WatchlistStore {
   }
   private async save() { this.writeQueue = this.writeQueue.then(() => this.persist()); return this.writeQueue; }
   async list(userId: number): Promise<WatchItem[]> { await this.load(); return [...(this.data[String(userId)] ?? [])]; }
+  async userIds(): Promise<number[]> { await this.load(); return Object.keys(this.data).map(Number).filter(Number.isSafeInteger); }
   async add(userId: number, address: string, label?: string): Promise<boolean> { await this.load(); const key=String(userId); const list=this.data[key] ?? []; if (list.some(x=>x.address===address)) return false; list.push({ address, label, addedAt: Date.now() }); this.data[key]=list.slice(-50); await this.save(); return true; }
   async remove(userId: number, address: string): Promise<boolean> { await this.load(); const key=String(userId); const list=this.data[key] ?? []; const next=list.filter(x=>x.address!==address); if(next.length===list.length)return false; this.data[key]=next; await this.save(); return true; }
 }
