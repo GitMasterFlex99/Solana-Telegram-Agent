@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isAuthorized, parseAllowedUserIds } from "../src/security/telegram-auth";
-import { RateLimiter } from "../src/security/rate-limit";
+import { isAuthorized, parseAllowedUserIds } from "../src/security/telegram-auth.js";
+import { RateLimiter } from "../src/security/rate-limit.js";
 
 describe("Telegram authorization", () => {
   it("fails closed without an allowlist", () => {
