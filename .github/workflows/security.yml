@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Use npm 11 for dependency resolution
+        run: npm install --global npm@11.6.0
+
       - name: Validate package manifest
         run: npm pkg get name version
 
