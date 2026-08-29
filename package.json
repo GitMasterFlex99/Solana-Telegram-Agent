@@ -1,12 +1,13 @@
 {
   "name": "solana-telegram-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@solana/kit": "latest",
@@ -23,6 +24,7 @@
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",
     "vite": "latest",
-    "@vitejs/plugin-react": "latest"
+    "@vitejs/plugin-react": "latest",
+    "vitest": "latest"
   }
 }
