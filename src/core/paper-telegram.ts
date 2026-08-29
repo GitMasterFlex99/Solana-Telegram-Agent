@@ -27,7 +27,7 @@ export function createPaperPortfolioUi(paper: PaperPortfolioManager, pairForAddr
 }
 
 export function paperSignalFromPair(pair: PipelineResult, riskProfile: string) {
-  const price = (pair as PipelineResult & { priceUsd?: number }).priceUsd;
+  const price = pair.priceUsd;
   if (!pair.baseToken?.address || !pair.baseToken.symbol || !Number.isFinite(price) || price <= 0) return null;
   return { address: pair.baseToken.address, symbol: pair.baseToken.symbol, name: pair.baseToken.name, entryPriceUsd: price, opportunityScore: pair.opportunityScore, riskProfile, source: pair.source };
 }
