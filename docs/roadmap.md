@@ -17,11 +17,17 @@
 - [ ] Wallet handoff/signing
 - [ ] Transaction status
 
-## Phase 3 — polish
+## Phase 3 — polish and release hardening
 - [ ] Better scanner ranking
 - [ ] Minimal alerts
-- [ ] Security tests and rate limits
+- [x] Telegram authorization and rate-limit controls
+- [x] Security test suite and CI security gates
+- [ ] CSP/security-header tests for the mobile web app
 - [ ] Deployment documentation
+
+## Security release rule
+
+Mainnet transaction execution remains blocked until the complete transaction path has passed the wallet, transaction-policy, simulation, replay/staleness, program/account validation, adversarial-fixture, and manual devnet gates documented under `docs/security/`.
 
 ## Explicitly out of scope for v1
 - Custodial wallet
