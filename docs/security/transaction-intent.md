@@ -1,6 +1,6 @@
 # Transaction intent security
 
-Every transaction must originate from a server-side validated intent with:
+Every future trade starts as a short-lived server-validated intent with:
 
 - intent ID generated with a CSPRNG
 - authenticated user/session ID
@@ -14,8 +14,17 @@ Every transaction must originate from a server-side validated intent with:
 - policy version
 - hash of the approved quote/transaction representation
 
-The intent is single-use. A successful signing/verification consumes it. Any mismatch between the wallet presented for signing and the wallet bound to the intent blocks the transaction.
+## Hard policy
 
-Never accept arbitrary serialized transaction bytes from Telegram, AI output, social content, URL parameters, or an untrusted frontend field.
+- Maximum intent lifetime: 60 seconds.
+- Maximum slippage: 100 bps (1%).
+- Intents are single-use.
+- Mainnet execution remains disabled until the complete devnet path passes review and release-gate checks.
+- The connected wallet must exactly match the intent wallet.
+- The intent must be revalidated immediately before signing.
+- AI, Telegram callback payloads and social content cannot create transaction authorization by themselves.
+- Serialized transaction bytes are never accepted as authorization input.
 
-Before signing, reconstruct or revalidate the transaction from the intent and compare the resulting critical accounts/programs/amounts against the policy. Simulation must pass immediately before signing. A stale, replayed, modified, or mismatched intent fails closed.
+Before signing, reconstruct or revalidate the transaction from the intent and compare the resulting critical accounts, programs and amounts against the policy. Simulation must pass immediately before signing. A stale, replayed, modified, or mismatched intent fails closed.
+
+This is defense in depth and does not replace wallet review, program/account allowlisting, simulation or post-transaction verification.
