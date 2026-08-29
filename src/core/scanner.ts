@@ -4,6 +4,7 @@ export type ScannerPair = {
   chainId?: string;
   baseToken?: { address?: string; symbol?: string; name?: string };
   url?: string;
+  priceUsd?: number;
   liquidity?: { usd?: number };
   volume?: { h24?: number };
   priceChange?: { h24?: number };
