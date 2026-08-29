@@ -12,8 +12,9 @@ describe("watchlist store", () => {
     expect(await first.add(123, "mint-a", "TEST")).toBe(true);
     expect(await first.add(123, "mint-a", "TEST")).toBe(false);
     const second = new WatchlistStore(file);
-    expect(await second.list(123)).toHaveLength(1);
-    expect(await second.list(123))[0].label = "TEST";
+    const items = await second.list(123);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.label).toBe("TEST");
     expect(await second.remove(123, "mint-a")).toBe(true);
     expect(await second.list(123)).toEqual([]);
     const raw = await readFile(file, "utf8");
