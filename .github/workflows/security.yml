@@ -27,7 +27,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          package-manager-cache: false
 
       - name: Use npm 11 for dependency resolution
         run: npm install --global npm@11.6.0
