@@ -59,6 +59,7 @@ describe("combined risk", () => {
     });
 
     expect(result.hardWarnings).toHaveLength(0);
-    expect(result.score).toBe(result.market.score - 5);
+    expect(result.onchainScore).toBe(95);
+    expect(result.score).toBe(98);
   });
 });
