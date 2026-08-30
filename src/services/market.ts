@@ -1,6 +1,5 @@
 import { discoverCandidates, fetchSolanaPairs, type DiscoveredPair } from "../core/market-discovery.js";
 import { score, riskFlags } from "../core/scoring.js";
-import { fetchRugCheckSummary } from "./rugcheck.js";
 
 type Pair = DiscoveredPair & { priceChange?: { h1?: number; h24?: number } };
 
@@ -33,10 +32,8 @@ export async function tokenPairs(address: string, fetchImpl: typeof fetch = fetc
   if (!response.ok) throw new Error(`DexScreener HTTP ${response.status}`);
   const data = await response.json() as unknown;
   if (!Array.isArray(data)) throw new Error("Unexpected market-data response");
-  const pairs = data.filter((p): p is Pair => typeof p === "object" && p !== null && (p as Pair).chainId === "solana")
+  return data.filter((p): p is Pair => typeof p === "object" && p !== null && (p as Pair).chainId === "solana")
     .sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0)).slice(0, 3);
-  const security = await fetchRugCheckSummary(address, fetchImpl);
-  return security ? pairs.map(pair => ({ ...pair, security })) : pairs;
 }
 
 export async function scanCandidates(): Promise<DiscoveredPair[]> {
