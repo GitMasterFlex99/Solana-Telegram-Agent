@@ -34,7 +34,7 @@ test("severe drawdown lowers market quality", () => {
 
 test("risk flags detect basic hazards", () => {
   const flags = riskFlags({ liquidity: { usd: 5_000 }, volume: { h24: 200_000 }, priceChange: { h24: 250 }, pairCreatedAt: now - 2 * 3_600_000 }, now);
-  assert.deepEqual(flags, ["very low liquidity", "very high volume/liquidity", "extreme 24h pump"]);
+  assert.deepEqual(flags, ["very low liquidity", "very high volume/liquidity", "very new pair", "extreme 24h pump"]);
 });
 
 test("risk flags detect possible inorganic activity", () => {
