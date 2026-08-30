@@ -2,118 +2,88 @@
 
 A deliberately simple, read-only Telegram bot for researching Solana meme-coin markets.
 
-The project is built around one workflow:
+**Workflow:** Scan → investigate → optionally use AI → watch.
 
-**Scan → investigate → optionally use AI → watch**
-
-It is intentionally not a trading terminal. Wallet connection, signing and automated trading are disabled.
+The project is intentionally not a trading terminal. Wallet connection, signing and automated trading are disabled.
 
 ## What it does
 
-### Market scanning
+### Market research
 
-`/scan` pulls public Solana market data through DexScreener, filters weak candidates and ranks the remaining tokens using:
+`/scan` uses public Solana market data to filter and rank candidates using liquidity, 24h volume, buy/sell activity, price movement, pair age, FDV/liquidity relationship and structural risk flags.
 
-- liquidity
-- 24h volume
-- buy/sell activity
-- price movement
-- pair age
-- FDV/liquidity relationship
-- basic risk flags
+The research score favors market structure over raw hype. The strongest market pair is used when a token is investigated.
 
-The research score is designed to favor market structure rather than raw hype. Very new or structurally risky pairs are penalized.
+### Social research
 
-### X/social signals
+X signals are optional. With `X_BEARER_TOKEN`, recent public posts are evaluated for independent accounts, early mentions, evidence-backed language, credible accounts, promotional language and repeated/copied posts.
 
-X signals are optional. If `X_BEARER_TOKEN` is configured, the bot checks recent public posts and looks for:
+Social evidence is deliberately supporting evidence only and contributes a small part of the final research score. Without X access, the rest of the bot continues to work.
 
-- independent accounts mentioning the token
-- early mentions
-- evidence-style language such as docs, GitHub, contracts, audits or announcements
+### Token investigation
 
-Social evidence can improve discovery, but it contributes only a small part of the final research score. The bot does not treat Twitter/X attention as proof that a token is good.
-
-Without an X token, the rest of the bot works normally.
-
-### Token analysis
-
-Each candidate can be opened for a deeper view containing:
-
-- research score
-- underlying market score
-- liquidity and volume
-- price change
-- pair age
-- risk flags
-- social signal
-- optional AI analysis
+A candidate can be opened for research showing its score, market metrics, age, risk flags and social signal. AI analysis is available only when the user has connected their own key.
 
 ### Optional user-provided AI
 
-AI is deliberately optional. Users can connect their own OpenAI API key from the private-chat Settings menu.
+Users can connect their own OpenAI API key from the private-chat Settings flow. The key is encrypted at rest, never displayed back, and the Telegram message containing it is deleted after processing. Setup expires after five minutes and keys can be removed from Settings.
 
-The key is:
-
-- encrypted at rest
-- never shown back to the user
-- deleted from the Telegram chat after processing
-- accepted only during a short five-minute setup window
-- removable from Settings
-
-The default model is `gpt-5.6-luna`, with `AI_MODEL` available for overriding it. AI is used for evidence-based bull case, bear case, uncertainty and invalidation analysis rather than price predictions.
+AI is used for evidence-based bull/bear analysis, uncertainty and invalidation conditions. It is not used to promise price targets or guarantee outcomes.
 
 ### Watchlist and alerts
 
-Use:
+Use `/watch <solana-token-address>` and `/unwatch <solana-token-address>`. Watched tokens are checked approximately every five minutes.
 
-```text
-/watch <solana-token-address>
-/unwatch <solana-token-address>
-```
+Alerts use threshold hysteresis and monitor meaningful changes in research score, momentum, price, volume and liquidity. The monitor has bounded API retries, timeouts, concurrency limits and protection against overlapping cycles.
 
-Watched tokens are checked approximately every five minutes. Alerts trigger only when meaningful thresholds are crossed, with hysteresis to avoid repeated notifications when a value jitters around a boundary.
+Watchlists and alert state persist across restarts using validated JSON state with atomic writes.
 
-The monitor does not automatically remove tokens when market data temporarily disappears.
-
-## Safety boundaries
+## Reliability and safety
 
 - Read-only by design.
-- No seed phrase is required.
-- No private key is required.
-- No wallet signing.
+- No seed phrase, private key or wallet signing is required.
 - No automated trading.
-- AI output is analysis of supplied evidence, not financial advice.
-- X/social data is supporting evidence, not a trading signal.
+- Market requests have timeouts and bounded retries for transient failures.
+- Individual token failures do not stop the alert monitor.
+- Persistent state is validated before use and written atomically.
+- Production configuration is validated during startup.
+- Optional AI and X integrations fail independently of the core research workflow.
 
-Never put a seed phrase, private key or API key in source code, commits or `.env` files that are uploaded to GitHub.
+Never put secrets, seed phrases or private keys in source code or commits.
 
-## Run locally
+## Configuration
 
-```bash
-npm install
-cp .env.example .env
-npm start
-```
-
-Set at least:
+Required:
 
 ```text
 TELEGRAM_BOT_TOKEN=...
 AI_KEY_ENCRYPTION_KEY=...
 ```
 
-`TELEGRAM_CHAT_ID` is optional but recommended when running a private bot. It restricts access to the configured Telegram chat.
+`AI_KEY_ENCRYPTION_KEY` must be a base64-encoded 32-byte key when user-provided AI keys are enabled.
 
 Optional:
 
 ```text
+TELEGRAM_CHAT_ID=...
 AI_MODEL=gpt-5.6-luna
 AI_KEY_STORE_PATH=./data/ai-keys.json
 X_BEARER_TOKEN=...
 ```
 
-`AI_KEY_ENCRYPTION_KEY` is required for user-provided AI keys to work. Keep it outside the repository and use a strong random value.
+`TELEGRAM_CHAT_ID` restricts the bot to the configured chat when supplied.
+
+Keep encryption keys and API tokens outside the repository and configure them through the deployment environment.
+
+## Run locally
+
+```bash
+npm install
+cp .env.example .env
+npm run typecheck
+npm test
+npm start
+```
 
 ## Bot commands
 
@@ -122,27 +92,48 @@ X_BEARER_TOKEN=...
 - `/watch <address>` — add a token to the watchlist
 - `/unwatch <address>` — remove a token
 - `/settings` — configure optional AI and X signals
-- `/portfolio` — currently a read-only placeholder
+- `/portfolio` — read-only placeholder; wallet trading is disabled
 - `/help` — show safety/help information
 
-The interface is intentionally button-first and minimal rather than trying to replicate a full-featured trading terminal.
+The interface stays intentionally small. Most of the complexity lives behind the scenes in the research, scoring, social-analysis and alert systems.
 
 ## Development
-
-Run the checks locally:
 
 ```bash
 npm run typecheck
 npm test
 ```
 
-CI runs the same typecheck and test commands.
+CI runs the same checks on changes.
 
-## Current roadmap
+## Architecture
 
-1. Continue improving research/safety scoring with real-world testing.
-2. Improve token detail analysis and evidence presentation.
-3. Add more useful alert conditions without increasing alert noise.
-4. Add richer historical research if the data source supports it reliably.
-5. Consider transaction simulation only after the research workflow is solid.
-6. Keep wallet signing/trading as a separate, explicit future layer rather than mixing it into the research MVP.
+```text
+Telegram
+   │
+   ▼
+Bot handlers ────────────────┐
+   │                         │
+   ▼                         ▼
+Market discovery          User state
+   │                    watchlists/alerts
+   ▼                         │
+Scoring ◄── X signals        │
+   │                         │
+   └──────────┬──────────────┘
+              ▼
+        Token investigation
+              │
+        optional user AI
+              │
+              ▼
+          Telegram alert
+```
+
+The core research path does not depend on AI or X. This keeps the bot useful for users who do not want to pay for additional APIs.
+
+## Project status
+
+The research MVP is read-only and production-oriented. The current focus is reliability, research quality and low-noise alerts rather than adding trading features or a large UI.
+
+Future work should be evaluated against that constraint: improvements should make the existing workflow smarter, safer or more reliable before adding new surface area.
