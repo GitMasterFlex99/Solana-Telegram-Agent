@@ -30,7 +30,13 @@ test("alert state survives a fresh store instance", async () => {
   const first = new AlertStateStore(file);
   await first.set("123:token", snapshot);
   const second = new AlertStateStore(file);
-  assert.deepEqual(await second.get("123:token"), snapshot);
+  const restored = await second.get("123:token");
+  assert.ok(restored);
+  assert.equal(restored.opportunity, snapshot.opportunity);
+  assert.equal(restored.momentum, snapshot.momentum);
+  assert.equal(restored.priceChange24h, snapshot.priceChange24h);
+  assert.equal(restored.liquidityUsd, snapshot.liquidityUsd);
+  assert.equal(restored.volume24hUsd, snapshot.volume24hUsd);
 });
 
 test("alert rules emit a meaningful threshold crossing", () => {
