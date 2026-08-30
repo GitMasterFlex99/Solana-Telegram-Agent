@@ -1,5 +1,3 @@
-import { fetchRugCheckSummary, type RugCheckSummary } from "../services/rugcheck.js";
-
 export type DiscoveredPair = {
   chainId?: string;
   dexId?: string;
@@ -15,7 +13,6 @@ export type DiscoveredPair = {
   marketCap?: number;
   pairCreatedAt?: number;
   txns?: { h24?: { buys?: number; sells?: number } };
-  security?: RugCheckSummary;
 };
 
 type TokenProfile = { chainId?: string; tokenAddress?: string };
@@ -56,33 +53,10 @@ export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise
     const address = pair.baseToken?.address;
     if (!address || address === SOL_MINT || pair.baseToken?.symbol?.toUpperCase() === "SOL") continue;
     const current = bestByToken.get(address);
-    if (!current) bestByToken.set(address, pair);
-    else bestByToken.set(address, betterPair(current, pair));
+    bestByToken.set(address, current ? betterPair(current, pair) : pair);
   }
 
-  const securityAddresses = [...bestByToken.entries()]
-    .sort((a, b) => {
-      const aStrength = (a[1].liquidity?.usd ?? 0) * 0.6 + (a[1].volume?.h24 ?? 0) * 0.4;
-      const bStrength = (b[1].liquidity?.usd ?? 0) * 0.6 + (b[1].volume?.h24 ?? 0) * 0.4;
-      return bStrength - aStrength;
-    })
-    .slice(0, 5)
-    .map(([address]) => address);
-
-  const securityEntries = await Promise.all(
-    securityAddresses.map(async (address) => [address, await fetchRugCheckSummary(address, fetchImpl)] as const)
-  );
-  const securityByToken = new Map<string, RugCheckSummary>();
-  for (const [address, security] of securityEntries) {
-    if (security) securityByToken.set(address, security);
-  }
-
-  return [...bestByToken.values()].map((pair) => {
-    const address = pair.baseToken?.address;
-    return address && securityByToken.has(address)
-      ? { ...pair, security: securityByToken.get(address) }
-      : pair;
-  });
+  return [...bestByToken.values()];
 }
 
 function betterPair(a: DiscoveredPair, b: DiscoveredPair): DiscoveredPair {
@@ -104,8 +78,7 @@ export function discoverCandidates(pairs: DiscoveredPair[], now = Date.now()): D
       if (!p.pairCreatedAt) return true;
       const ageHours = (now - p.pairCreatedAt) / 3_600_000;
       return ageHours >= 0.25;
-    })
-    .filter((p) => p.security?.riskLevel?.toLowerCase() !== "danger");
+    });
 
   const byToken = new Map<string, DiscoveredPair>();
   for (const pair of candidates) {
