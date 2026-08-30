@@ -5,14 +5,14 @@ import { discoverCandidates } from "./market-discovery.js";
 const now = Date.UTC(2026, 0, 1);
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
-test("discovery keeps Solana pairs with enough liquidity and volume", () => {
+test("discovery keeps Solana pairs above the minimum liquidity and volume", () => {
   const pairs = [
     { chainId: "solana", baseToken: { address: "A" }, liquidity: { usd: 20_000 }, volume: { h24: 20_000 } },
     { chainId: "ethereum", baseToken: { address: "B" }, liquidity: { usd: 200_000 }, volume: { h24: 200_000 } },
     { chainId: "solana", baseToken: { address: "C" }, liquidity: { usd: 5_000 }, volume: { h24: 50_000 } },
     { chainId: "solana", baseToken: { address: "D" }, liquidity: { usd: 20_000 }, volume: { h24: 5_000 } }
   ];
-  assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["A"]);
+  assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["C", "A", "D"]);
 });
 
 test("discovery excludes native SOL from meme candidates", () => {
@@ -34,6 +34,14 @@ test("discovery sorts candidates by volume", () => {
     { chainId: "solana", baseToken: { address: "B" }, liquidity: { usd: 20_000 }, volume: { h24: 50_000 } }
   ];
   assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["B", "A"]);
+});
+
+test("discovery removes RugCheck danger candidates", () => {
+  const pairs = [
+    { chainId: "solana", baseToken: { address: "DANGER" }, liquidity: { usd: 100_000 }, volume: { h24: 100_000 }, security: { riskLevel: "Danger" } },
+    { chainId: "solana", baseToken: { address: "SAFE" }, liquidity: { usd: 90_000 }, volume: { h24: 90_000 }, security: { riskLevel: "Good" } }
+  ];
+  assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["SAFE"]);
 });
 
 test("discovery keeps only the strongest pool for each token", () => {
