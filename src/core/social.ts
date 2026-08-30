@@ -18,7 +18,7 @@ export function assessSocial(mentions: SocialMention[]): SocialAssessment {
   const early = mentions.filter(m => m.ageMinutes <= 30).length;
   const evidence = mentions.filter(m => m.hasEvidence).length;
   const late = mentions.filter(m => (m.priceChangeBeforeMentionPct ?? 0) >= 30).length;
-  let score = Math.min(45, unique * 12) + Math.min(30, early * 10) + Math.min(25, evidence * 8) - Math.min(30, late * 10);
+  let score = Math.min(45, unique * 15) + Math.min(30, early * 10) + Math.min(25, evidence * 8) - Math.min(30, late * 10);
   score = Math.max(0, Math.min(100, score));
   const reasons: string[] = [];
   if (unique >= 2) reasons.push("Multiple independent accounts");
