@@ -11,8 +11,6 @@ export function startAlertMonitor(bot: Bot, watchlists: WatchlistStore, states: 
       for (const item of await watchlists.list(userId)) {
         try {
           const pair = (await tokenPairs(item.address))[0];
-          // A missing pair can be a temporary API/indexing issue or a dead market.
-          // Do not alert or remove the token automatically; the user can unwatch it.
           if (!pair) continue;
 
           const flags = riskFlags(pair);
@@ -21,6 +19,8 @@ export function startAlertMonitor(bot: Bot, watchlists: WatchlistStore, states: 
             momentum: Math.max(0, Math.min(100, 50 + (pair.priceChange?.h24 ?? 0) / 2)),
             priceChange24h: pair.priceChange?.h24 ?? 0,
             riskScore: Math.min(100, flags.length * 20),
+            liquidityUsd: pair.liquidity?.usd,
+            volume24hUsd: pair.volume?.h24,
           });
           const key = `${userId}:${item.address}`;
           const previous = await states.get(key);
