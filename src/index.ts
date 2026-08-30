@@ -68,8 +68,22 @@ async function sendScan(ctx: any) {
 bot.command("start", async ctx => { if (!guard(ctx)) return; await ctx.reply("Solana Meme Agent\n\nSimple by design. Scan markets, inspect risk, optionally add your own AI key, and watch a few tokens.\n\nTrading is disabled.", { reply_markup: menu() }); });
 bot.command("scan", async ctx => { if (guard(ctx)) await sendScan(ctx); });
 bot.command("portfolio", async ctx => { if (guard(ctx)) await ctx.reply("💼 No wallet is connected. Trading is disabled.", { reply_markup: menu() }); });
-bot.command("watch", async ctx => { if (!guard(ctx)) return; const userId = ctx.from?.id; const address = ctx.message?.text?.split(/\s+/)[1] ?? ""; if (userId === undefined) return; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) { await ctx.reply("Usage: /watch <Solana token address>"); return; } await watchlists.add(userId, address); await ctx.reply("⭐ Token added to your watchlist. Alerts run automatically.", { reply_markup: menu() }); });
-bot.command("unwatch", async ctx => { if (!guard(ctx)) return; const userId = ctx.from?.id; const address = ctx.message?.text?.split(/\s+/)[1] ?? ""; if (userId === undefined) return; if (!address) { await ctx.reply("Usage: /unwatch <Solana token address>"); return; } const removed = await watchlists.remove(userId, address); await ctx.reply(removed ? "Removed from your watchlist." : "That token was not on your watchlist."); });
+bot.command("watch", async ctx => {
+  if (!guard(ctx) || !ctx.message || !ctx.from) return;
+  const userId = ctx.from.id;
+  const address = ctx.message.text.split(/\s+/)[1] ?? "";
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) { await ctx.reply("Usage: /watch <Solana token address>"); return; }
+  await watchlists.add(userId, address);
+  await ctx.reply("⭐ Token added to your watchlist. Alerts run automatically.", { reply_markup: menu() });
+});
+bot.command("unwatch", async ctx => {
+  if (!guard(ctx) || !ctx.message || !ctx.from) return;
+  const userId = ctx.from.id;
+  const address = ctx.message.text.split(/\s+/)[1] ?? "";
+  if (!address) { await ctx.reply("Usage: /unwatch <Solana token address>"); return; }
+  const removed = await watchlists.remove(userId, address);
+  await ctx.reply(removed ? "Removed from your watchlist." : "That token was not on your watchlist.");
+});
 bot.command("settings", async ctx => { if (guard(ctx)) await ctx.reply(settingsText(ctx.from?.id), { reply_markup: settingsMenu() }); });
 bot.command("help", async ctx => { if (guard(ctx)) await ctx.reply("/scan — find candidates\n/watch <address> — enable alerts\n/unwatch <address> — remove alerts\n/settings — optional AI and X signals\n\nNever send a seed phrase or private key. Trading is disabled.", { reply_markup: menu() }); });
 
@@ -84,14 +98,13 @@ bot.callbackQuery("back", async ctx => { await ctx.answerCallbackQuery(); if (gu
 bot.callbackQuery(/^watch:(.+)$/, async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await watchlists.add(ctx.from.id, ctx.match[1]); await ctx.reply("⭐ Added to watchlist. You will get alerts when monitored thresholds change.", { reply_markup: menu() }); });
 
 bot.on("message:text", async ctx => {
-  if (!guard(ctx)) return;
-  const userId = ctx.from?.id;
-  if (userId === undefined) return;
-  const text = ctx.message?.text?.trim() ?? "";
+  if (!guard(ctx) || !ctx.message || !ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const text = ctx.message.text.trim();
   if (pendingAI.has(userId)) {
     pendingAI.delete(userId);
     try {
-      if (ctx.chat?.type !== "private") throw new Error("AI key setup requires a private chat");
+      if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
       aiStore?.set(String(userId), text);
       await ctx.deleteMessage().catch(() => undefined);
       await ctx.reply("OpenAI key saved securely. The key message was deleted.", { reply_markup: settingsMenu() });
