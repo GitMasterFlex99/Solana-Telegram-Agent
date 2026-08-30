@@ -38,18 +38,21 @@ const settingsText = (userId?: number) => {
   return `⚙️ Settings\n\nAI: ${ai ? "connected" : "not connected"}\nX signals: ${x ? "enabled" : "unavailable"}\n\nAI is optional. The bot remains fully usable without it.`;
 };
 
+async function rankCandidates(pairs: Pair[], socialLimit = 20): Promise<RankedCandidate[]> {
+  const pool = pairs.slice(0, socialLimit);
+  const ranked: RankedCandidate[] = await Promise.all(pool.map(async pair => {
+    const social = await fetchXSignal(pair.baseToken?.symbol ?? "", pair.baseToken?.address ?? "");
+    return { pair, social, researchScore: researchScore(pair, social.available ? social.score : 0) };
+  }));
+  return ranked.sort((a, b) => b.researchScore - a.researchScore);
+}
+
 async function sendScan(ctx: any) {
   await ctx.reply("🔎 Scanning Solana markets...");
   try {
     const pairs = discoverCandidates(await fetchSolanaPairs());
-    const pool = pairs.sort((a, b) => score(b) - score(a)).slice(0, 10);
-    if (!pool.length) { await ctx.reply("No candidates passed the basic filters.", { reply_markup: menu() }); return; }
-
-    const ranked: RankedCandidate[] = await Promise.all(pool.map(async pair => {
-      const social = await fetchXSignal(pair.baseToken?.symbol ?? "", pair.baseToken?.address ?? "");
-      return { pair, social, researchScore: researchScore(pair, social.available ? social.score : 0) };
-    }));
-    ranked.sort((a, b) => b.researchScore - a.researchScore);
+    if (!pairs.length) { await ctx.reply("No candidates passed the basic filters.", { reply_markup: menu() }); return; }
+    const ranked = await rankCandidates(pairs, 20);
 
     for (const [i, item] of ranked.slice(0, 5).entries()) {
       const p = item.pair;
@@ -179,16 +182,7 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Your key was not displayed."); }
 });
 
-bot.catch(e => console.error("Telegram bot error", e));
-await bot.api.setMyCommands([
-  { command: "start", description: "Open the main menu" },
-  { command: "scan", description: "Find Solana candidates" },
-  { command: "watch", description: "Watch a token" },
-  { command: "unwatch", description: "Remove a token" },
-  { command: "portfolio", description: "View portfolio" },
-  { command: "settings", description: "Configure optional AI and X" },
-  { command: "help", description: "Show help" }
-]);
-console.log("Solana Telegram Agent running");
-startAlertMonitor(bot, watchlists, alertStates);
-await bot.start();
+startAlertMonitor({ bot, watchlists, alertStates });
+
+bot.catch(err => console.error("Bot error", err));
+bot.start();
