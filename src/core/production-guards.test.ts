@@ -6,7 +6,7 @@ test("production config accepts required values", () => {
   assert.deepEqual(validateProductionConfig({
     telegramToken: "token",
     telegramChatId: "123456",
-    aiEncryptionKey: "a".repeat(32),
+    aiEncryptionKey: Buffer.alloc(32, 7).toString("base64"),
   }), []);
 });
 
@@ -17,6 +17,6 @@ test("production config reports missing and malformed values", () => {
   }), [
     "TELEGRAM_BOT_TOKEN is required",
     "TELEGRAM_CHAT_ID must be a numeric Telegram chat ID",
-    "AI_KEY_ENCRYPTION_KEY must be at least 32 characters when configured",
+    "AI_KEY_ENCRYPTION_KEY must be a base64-encoded 32-byte key when configured",
   ]);
 });
