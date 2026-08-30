@@ -1,0 +1,39 @@
+import { socialSignal, type SocialMention } from "../core/social-signals.js";
+
+export type XSignal = ReturnType<typeof socialSignal> & { available: boolean; reason?: string };
+
+type XPost = { author_id?: string; created_at?: string; text?: string };
+type XUser = { id?: string; username?: string; verified?: boolean; public_metrics?: { followers_count?: number } };
+type XResponse = { data?: XPost[]; includes?: { users?: XUser[] } };
+
+function queryPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.$-]/g, "").slice(0, 80);
+}
+
+export async function fetchXSignal(symbol: string, address: string, fetchImpl: typeof fetch = fetch): Promise<XSignal> {
+  const bearer = process.env.X_BEARER_TOKEN?.trim();
+  if (!bearer) return { available: false, score: 0, mentions: 0, independentAccounts: 0, earlyMentions: 0, evidenceMentions: 0, lateMentions: 0, summary: "X signal unavailable", reason: "X_BEARER_TOKEN not configured" };
+
+  const q = `(${queryPart(symbol)} OR ${queryPart(address)}) -is:retweet`;
+  const url = new URL("https://api.x.com/2/tweets/search/recent");
+  url.searchParams.set("query", q);
+  url.searchParams.set("max_results", "25");
+  url.searchParams.set("tweet.fields", "created_at");
+  url.searchParams.set("expansions", "author_id");
+  url.searchParams.set("user.fields", "username,verified,public_metrics");
+
+  const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${bearer}` } });
+  if (!response.ok) return { available: false, score: 0, mentions: 0, independentAccounts: 0, earlyMentions: 0, evidenceMentions: 0, lateMentions: 0, summary: "X signal unavailable", reason: `X API HTTP ${response.status}` };
+  const data = await response.json() as XResponse;
+  const users = new Map((data.includes?.users ?? []).map(user => [user.id, user]));
+  const mentions: SocialMention[] = (data.data ?? []).map(post => {
+    const user = users.get(post.author_id);
+    const text = post.text ?? "";
+    return {
+      account: user?.username ?? post.author_id ?? "unknown",
+      mentionedAt: post.created_at ? Date.parse(post.created_at) : Date.now(),
+      hasEvidence: /\b(github|docs?|contract|website|audit|source|announcement)\b/i.test(text),
+    };
+  });
+  return { available: true, ...socialSignal(mentions) };
+}
