@@ -11,54 +11,59 @@ export type EncryptedAIStore = {
 
 type RecordMap = Record<string, string>;
 
-function validUserId(userId: string): boolean {
-  return /^[0-9]+$/.test(userId);
+const validUserId = (userId: string) => /^[0-9]+$/.test(userId);
+const validApiKey = (apiKey: string) => /^sk-[A-Za-z0-9_-]{20,}$/.test(apiKey.trim());
+
+function readRecords(filePath: string): RecordMap {
+  if (!existsSync(filePath)) return Object.create(null) as RecordMap;
+  const raw = readFileSync(filePath, "utf8");
+  if (!raw.trim()) return Object.create(null) as RecordMap;
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid AI key store");
+  const records = Object.create(null) as RecordMap;
+  for (const [id, value] of Object.entries(parsed)) {
+    if (!validUserId(id) || typeof value !== "string") throw new Error("Invalid AI key store record");
+    records[id] = value;
+  }
+  return records;
+}
+
+function saveRecords(filePath: string, records: RecordMap): void {
+  const directory = dirname(filePath);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
+  const temp = `${filePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  writeFileSync(temp, `${JSON.stringify(records)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  chmodSync(temp, 0o600);
+  renameSync(temp, filePath);
+  chmodSync(filePath, 0o600);
 }
 
 export function createEncryptedAIStore(filePath = process.env.AI_KEY_STORE_PATH ?? "./data/ai-keys.json"): EncryptedAIStore {
-  const load = (): RecordMap => {
-    if (!existsSync(filePath)) return {};
-    const raw = readFileSync(filePath, "utf8");
-    if (!raw.trim()) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid AI key store");
-    return parsed as RecordMap;
-  };
-
-  const save = (records: RecordMap): void => {
-    const directory = dirname(filePath);
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const temp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    writeFileSync(temp, `${JSON.stringify(records)}\n`, { encoding: "utf8", mode: 0o600 });
-    chmodSync(temp, 0o600);
-    renameSync(temp, filePath);
-    chmodSync(filePath, 0o600);
-  };
-
   return {
     get(userId) {
       if (!validUserId(userId)) return undefined;
-      const encrypted = load()[userId];
+      const encrypted = readRecords(filePath)[userId];
       return encrypted ? decryptSecret(encrypted) : undefined;
     },
     set(userId, apiKey) {
       if (!validUserId(userId)) throw new Error("Invalid user ID");
-      if (!apiKey.trim()) throw new Error("API key cannot be empty");
-      const records = load();
+      if (!validApiKey(apiKey)) throw new Error("Invalid OpenAI API key format");
+      const records = readRecords(filePath);
       records[userId] = encryptSecret(apiKey.trim());
-      save(records);
+      saveRecords(filePath, records);
     },
     remove(userId) {
       if (!validUserId(userId)) return;
-      const records = load();
-      if (userId in records) {
+      const records = readRecords(filePath);
+      if (Object.hasOwn(records, userId)) {
         delete records[userId];
-        save(records);
+        saveRecords(filePath, records);
       }
     },
     has(userId) {
       if (!validUserId(userId)) return false;
-      return Boolean(load()[userId]);
+      return Object.hasOwn(readRecords(filePath), userId);
     },
   };
 }
