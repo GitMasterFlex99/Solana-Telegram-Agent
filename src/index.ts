@@ -5,7 +5,7 @@ import { analyzeWithOpenAI, buildTokenPrompt } from "./core/ai.js";
 import { createEncryptedAIStore } from "./core/encrypted-ai-store.js";
 import { WatchlistStore } from "./core/watchlist-store.js";
 import { AlertStateStore } from "./core/alert-state-store.js";
-import { tokenPairs } from "./services/market.js";
+import { isSolanaAddress, tokenPairs } from "./services/market.js";
 import { fetchXSignal } from "./services/x-signals.js";
 import { startAlertMonitor } from "./services/alert-monitor.js";
 import { validateProductionConfig } from "./core/production-guards.js";
@@ -50,6 +50,45 @@ async function rankCandidates(pairs: Pair[], socialLimit = 20): Promise<RankedCa
   return ranked.sort((a, b) => b.researchScore - a.researchScore);
 }
 
+function bestPair(pairs: Pair[]): Pair {
+  return pairs.reduce((best, candidate) => {
+    const bestLiquidity = best.liquidity?.usd ?? 0;
+    const candidateLiquidity = candidate.liquidity?.usd ?? 0;
+    if (candidateLiquidity !== bestLiquidity) return candidateLiquidity > bestLiquidity ? candidate : best;
+    return (candidate.volume?.h24 ?? 0) > (best.volume?.h24 ?? 0) ? candidate : best;
+  });
+}
+
+async function sendTokenAnalysis(ctx: any, address: string) {
+  const pairs = await tokenPairs(address);
+  if (!pairs.length) { await ctx.reply("I couldn't find a Solana market for that token.", { reply_markup: menu() }); return; }
+  const p = bestPair(pairs);
+  const flags = riskFlags(p);
+  const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
+  const finalScore = researchScore(p, social.available ? social.score : 0);
+  const text = [
+    `🔍 ${p.baseToken?.symbol ?? "Unknown"}`,
+    p.baseToken?.name ?? "",
+    `Research score: ${finalScore}/100`,
+    `Market score: ${score(p)}/100`,
+    `Price: $${p.priceUsd ?? "—"}`,
+    `Liquidity: ${money(p.liquidity?.usd)}`,
+    `24h volume: ${money(p.volume?.h24)}`,
+    `24h change: ${p.priceChange?.h24?.toFixed(1) ?? "—"}%`,
+    `Age: ${age(p.pairCreatedAt)}`,
+    flags.length ? `⚠️ Risk flags: ${flags.join(", ")}` : "✅ No basic risk flags detected",
+    `𝕏 Social: ${social.available ? `${social.score}/100 — ${social.summary}` : "unavailable"}`,
+    "",
+    "Market-data research only — not a guarantee that the token is safe or profitable."
+  ].filter(Boolean).join("\n");
+  const keyboard = new InlineKeyboard().text("⭐ Watch", `watch:${p.baseToken?.address ?? address}`);
+  if (aiStore?.has(String(ctx.from?.id))) keyboard.text("🤖 AI Analysis", `ai:${p.baseToken?.address ?? address}`);
+  keyboard.row();
+  if (p.url) keyboard.url("Open market", p.url).row();
+  keyboard.text("🔎 Scan again", "scan");
+  await ctx.reply(text, { reply_markup: keyboard });
+}
+
 async function sendScan(ctx: any) {
   await ctx.reply("🔎 <b>Scanning Solana markets…</b>", { parse_mode: "HTML" });
   try {
@@ -77,36 +116,19 @@ async function sendScan(ctx: any) {
       if (p.url) keyboard.row().url("Open market", p.url);
       await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
     }
-  } catch (e) {
-    console.error(e);
-    await ctx.reply("Couldn't fetch market data right now. Try again later.", { reply_markup: menu() });
-  }
+  } catch (e) { console.error(e); await ctx.reply("Couldn't fetch market data right now. Try again later.", { reply_markup: menu() }); }
 }
 
 bot.command("start", async ctx => { if (!guard(ctx)) return; await ctx.reply("Solana Meme Agent\n\nSimple by design. Scan markets, inspect risk, optionally add your own AI key, and watch a few tokens.\n\nTrading is disabled.", { reply_markup: menu() }); });
 bot.command("scan", async ctx => { if (guard(ctx)) await sendScan(ctx); });
 bot.command("portfolio", async ctx => { if (guard(ctx)) await ctx.reply("💼 No wallet is connected. Trading is disabled.", { reply_markup: menu() }); });
-bot.command("watch", async ctx => {
-  if (!guard(ctx) || !ctx.message || !ctx.from) return;
-  const userId = ctx.from.id;
-  const address = ctx.message.text.split(/\s+/)[1] ?? "";
-  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) { await ctx.reply("Usage: /watch <Solana token address>"); return; }
-  await watchlists.add(userId, address);
-  await ctx.reply("⭐ Token added to your watchlist. Alerts run automatically.", { reply_markup: menu() });
-});
-bot.command("unwatch", async ctx => {
-  if (!guard(ctx) || !ctx.message || !ctx.from) return;
-  const userId = ctx.from.id;
-  const address = ctx.message.text.split(/\s+/)[1] ?? "";
-  if (!address) { await ctx.reply("Usage: /unwatch <Solana token address>"); return; }
-  const removed = await watchlists.remove(userId, address);
-  await ctx.reply(removed ? "Removed from your watchlist." : "That token was not on your watchlist.");
-});
+bot.command("watch", async ctx => { if (!guard(ctx) || !ctx.message || !ctx.from) return; const userId = ctx.from.id; const address = ctx.message.text.split(/\s+/)[1] ?? ""; if (!isSolanaAddress(address)) { await ctx.reply("Usage: /watch <Solana token address>"); return; } await watchlists.add(userId, address); await ctx.reply("⭐ Token added to your watchlist. Alerts run automatically.", { reply_markup: menu() }); });
+bot.command("unwatch", async ctx => { if (!guard(ctx) || !ctx.message || !ctx.from) return; const userId = ctx.from.id; const address = ctx.message.text.split(/\s+/)[1] ?? ""; if (!address) { await ctx.reply("Usage: /unwatch <Solana token address>"); return; } const removed = await watchlists.remove(userId, address); await ctx.reply(removed ? "Removed from your watchlist." : "That token was not on your watchlist."); });
 bot.command("settings", async ctx => { if (guard(ctx)) await ctx.reply(settingsText(ctx.from?.id), { reply_markup: settingsMenu() }); });
-bot.command("help", async ctx => { if (guard(ctx)) await ctx.reply("/scan — find candidates\n/watch <address> — enable alerts\n/unwatch <address> — remove alerts\n/settings — optional AI and X signals\n\nNever send a seed phrase or private key. Trading is disabled.", { reply_markup: menu() }); });
+bot.command("help", async ctx => { if (guard(ctx)) await ctx.reply("/scan — find candidates\nPaste a Solana token address — analyze it directly\n/watch <address> — enable alerts\n/unwatch <address> — remove alerts\n/settings — optional AI and X signals\n\nNever send a seed phrase or private key. Trading is disabled.", { reply_markup: menu() }); });
 
 bot.callbackQuery("scan", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await sendScan(ctx); });
-bot.callbackQuery("watchlist", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const items = await watchlists.list(userId); await ctx.reply(items.length ? `⭐ Watchlist\n\n${items.map((x, i) => `${i + 1}. ${x.label ?? x.address}`).join("\n")}` : "⭐ Your watchlist is empty.\n\nUse /watch <token address> from a token screen.", { reply_markup: menu() }); });
+bot.callbackQuery("watchlist", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const items = await watchlists.list(userId); await ctx.reply(items.length ? `⭐ Watchlist\n\n${items.map((x, i) => `${i + 1}. ${x.label ?? x.address}`).join("\n")}` : "⭐ Your watchlist is empty.\n\nUse /watch <token address> or paste a token address to research it.", { reply_markup: menu() }); });
 bot.callbackQuery("settings", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply(settingsText(ctx.from?.id), { reply_markup: settingsMenu() }); });
 bot.callbackQuery("ai_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const connected = Boolean(aiStore?.has(String(userId))); const kb = new InlineKeyboard(); if (connected) kb.text("Remove AI key", "ai_remove"); else kb.text("Connect OpenAI", "ai_add"); kb.row().text("⬅️ Settings", "settings"); await ctx.reply(`🤖 AI Analysis\n\n${connected ? "Connected — token screens can use your key." : "Optional — the bot works normally without AI."}\n\nFor safety, key setup only works in a private chat. Your key message is deleted after processing. Setup expires after 5 minutes.`, { reply_markup: kb }); });
 bot.callbackQuery("ai_add", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; if (ctx.chat?.type !== "private") { await ctx.reply("Connect an AI key only from a private chat."); return; } pendingAI.set(ctx.from.id, Date.now() + AI_SETUP_TTL_MS); await ctx.reply("Send your OpenAI API key as your next message. The message will be deleted after processing. Setup expires in 5 minutes."); });
@@ -119,66 +141,25 @@ bot.on("message:text", async ctx => {
   if (!guard(ctx) || !ctx.message || !ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const text = ctx.message.text.trim();
-  const expiresAt = pendingAI.get(userId);
-  if (expiresAt === undefined) return;
-  if (Date.now() > expiresAt) {
-    pendingAI.delete(userId);
-    await ctx.deleteMessage().catch(() => undefined);
-    await ctx.reply("AI key setup expired. The message was deleted. Open Settings → AI and start again.", { reply_markup: settingsMenu() });
+  if (isSolanaAddress(text)) {
+    try { await sendTokenAnalysis(ctx, text); }
+    catch (e) { console.error(e); await ctx.reply("Couldn't analyze that token right now. Check that the address is a Solana token and try again.", { reply_markup: menu() }); }
     return;
   }
+  const expiresAt = pendingAI.get(userId);
+  if (expiresAt === undefined) return;
+  if (Date.now() > expiresAt) { pendingAI.delete(userId); await ctx.deleteMessage().catch(() => undefined); await ctx.reply("AI key setup expired. The message was deleted. Open Settings → AI and start again.", { reply_markup: settingsMenu() }); return; }
   if (text.startsWith("/")) return;
-
   pendingAI.delete(userId);
   try {
     if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
     aiStore?.set(String(userId), text);
     await ctx.deleteMessage().catch(() => undefined);
     await ctx.reply("OpenAI key saved securely. The key message was deleted.", { reply_markup: settingsMenu() });
-  } catch {
-    await ctx.deleteMessage().catch(() => undefined);
-    await ctx.reply("Couldn't save that key. Check the key format and server encryption configuration.");
-  }
+  } catch { await ctx.deleteMessage().catch(() => undefined); await ctx.reply("Couldn't save that key. Check the key format and server encryption configuration."); }
 });
 
-bot.callbackQuery(/^analyze:(.+)$/, async ctx => {
-  await ctx.answerCallbackQuery();
-  if (!guard(ctx)) return;
-  try {
-    const pairs = await tokenPairs(ctx.match[1]);
-    if (!pairs.length) { await ctx.reply("I couldn't find a Solana market for that token.", { reply_markup: menu() }); return; }
-    const p = pairs.reduce((best, candidate) => {
-      const bestLiquidity = best.liquidity?.usd ?? 0;
-      const candidateLiquidity = candidate.liquidity?.usd ?? 0;
-      if (candidateLiquidity !== bestLiquidity) return candidateLiquidity > bestLiquidity ? candidate : best;
-      return (candidate.volume?.h24 ?? 0) > (best.volume?.h24 ?? 0) ? candidate : best;
-    });
-    const flags = riskFlags(p);
-    const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
-    const finalScore = researchScore(p, social.available ? social.score : 0);
-    const text = [
-      `🔍 ${p.baseToken?.symbol ?? "Unknown"}`,
-      p.baseToken?.name ?? "",
-      `Research score: ${finalScore}/100`,
-      `Market score: ${score(p)}/100`,
-      `Price: $${p.priceUsd ?? "—"}`,
-      `Liquidity: ${money(p.liquidity?.usd)}`,
-      `24h volume: ${money(p.volume?.h24)}`,
-      `24h change: ${p.priceChange?.h24?.toFixed(1) ?? "—"}%`,
-      `Age: ${age(p.pairCreatedAt)}`,
-      flags.length ? `⚠️ Risk flags: ${flags.join(", ")}` : "✅ No basic risk flags detected",
-      `𝕏 Social: ${social.available ? `${social.score}/100 — ${social.summary}` : "unavailable"}`,
-      "",
-      "Market-data research only — not a guarantee that the token is safe or profitable."
-    ].filter(Boolean).join("\n");
-    const keyboard = new InlineKeyboard().text("⭐ Watch", `watch:${p.baseToken?.address ?? ""}`);
-    if (aiStore?.has(String(ctx.from.id))) keyboard.text("🤖 AI Analysis", `ai:${p.baseToken?.address ?? ""}`);
-    keyboard.row();
-    if (p.url) keyboard.url("Open market", p.url).row();
-    keyboard.text("🔎 Scan again", "scan");
-    await ctx.reply(text, { reply_markup: keyboard });
-  } catch (e) { console.error(e); await ctx.reply("Couldn't analyze that token right now.", { reply_markup: menu() }); }
-});
+bot.callbackQuery(/^analyze:(.+)$/, async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; try { await sendTokenAnalysis(ctx, ctx.match[1]); } catch (e) { console.error(e); await ctx.reply("Couldn't analyze that token right now.", { reply_markup: menu() }); } });
 
 bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
@@ -186,12 +167,7 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   try {
     const pairs = await tokenPairs(ctx.match[1]);
     if (!pairs.length) { await ctx.reply("Token data is no longer available."); return; }
-    const p = pairs.reduce((best, candidate) => {
-      const bestLiquidity = best.liquidity?.usd ?? 0;
-      const candidateLiquidity = candidate.liquidity?.usd ?? 0;
-      if (candidateLiquidity !== bestLiquidity) return candidateLiquidity > bestLiquidity ? candidate : best;
-      return (candidate.volume?.h24 ?? 0) > (best.volume?.h24 ?? 0) ? candidate : best;
-    });
+    const p = bestPair(pairs);
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
     const finalScore = researchScore(p, social.available ? social.score : 0);
     const prompt = buildTokenPrompt({ symbol: p.baseToken?.symbol ?? "Unknown", score: finalScore, riskFlags: riskFlags(p), social: social.available ? `${social.score}/100 — ${social.summary}` : "unavailable", marketContext: `liquidity=${money(p.liquidity?.usd)}, 24h volume=${money(p.volume?.h24)}, 24h change=${p.priceChange?.h24 ?? "unknown"}%` });
@@ -200,16 +176,19 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Check your key and try again.", { reply_markup: menu() }); }
 });
 
-startAlertMonitor(bot, watchlists, alertStates);
+const alertTimer = startAlertMonitor(bot, watchlists, alertStates);
+bot.catch((err) => console.error("Telegram bot error", err));
+
 let shuttingDown = false;
-const shutdown = async (signal: string) => {
+async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`Received ${signal}; shutting down gracefully...`);
-  await bot.stop();
-  process.exit(0);
-};
-process.once("SIGINT", () => { void shutdown("SIGINT"); });
-process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
-bot.catch((err) => console.error("Telegram bot error", err));
+  console.log(`Received ${signal}; shutting down gracefully.`);
+  clearInterval(alertTimer);
+  bot.stop();
+}
+
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
 await bot.start();
