@@ -26,5 +26,5 @@ export function assessSocial(mentions: SocialMention[]): SocialAssessment {
   if (early > 0) reasons.push("Early mentions");
   if (evidence > 0) reasons.push("Some mentions include evidence");
   if (late > 0) reasons.push("Some mentions came after a large move");
-  return { score, label: score >= 65 ? "interesting" : score >= 35 ? "mixed" : "weak", reasons };
+  return { score, label: score >= 60 ? "interesting" : score >= 35 ? "mixed" : "weak", reasons };
 }
