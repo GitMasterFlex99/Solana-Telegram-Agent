@@ -26,3 +26,14 @@ test("discovery sorts candidates by volume", () => {
   ];
   assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["B", "A"]);
 });
+
+test("discovery keeps only the strongest pool for each token", () => {
+  const pairs = [
+    { chainId: "solana", baseToken: { address: "A" }, dexId: "dex-1", liquidity: { usd: 20_000 }, volume: { h24: 80_000 } },
+    { chainId: "solana", baseToken: { address: "A" }, dexId: "dex-2", liquidity: { usd: 50_000 }, volume: { h24: 40_000 } },
+    { chainId: "solana", baseToken: { address: "B" }, liquidity: { usd: 30_000 }, volume: { h24: 90_000 } }
+  ];
+  const result = discoverCandidates(pairs, now);
+  assert.deepEqual(result.map(p => p.baseToken?.address), ["B", "A"]);
+  assert.equal(result.find(p => p.baseToken?.address === "A")?.dexId, "dex-2");
+});
