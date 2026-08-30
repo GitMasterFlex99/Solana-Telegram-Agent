@@ -104,7 +104,7 @@ bot.callbackQuery("settings", async ctx => { await ctx.answerCallbackQuery(); if
 bot.callbackQuery("ai_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const connected = Boolean(aiStore?.has(String(userId))); const kb = new InlineKeyboard(); if (connected) kb.text("Remove AI key", "ai_remove"); else kb.text("Connect OpenAI", "ai_add"); kb.row().text("⬅️ Settings", "settings"); await ctx.reply(`🤖 AI Analysis\n\n${connected ? "Connected — token screens can use your key." : "Optional — the bot works normally without AI."}\n\nFor safety, key setup only works in a private chat. Your key message is deleted after processing. Setup expires after 5 minutes.`, { reply_markup: kb }); });
 bot.callbackQuery("ai_add", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; if (ctx.chat?.type !== "private") { await ctx.reply("Connect an AI key only from a private chat."); return; } pendingAI.set(ctx.from.id, Date.now() + AI_SETUP_TTL_MS); await ctx.reply("Send your OpenAI API key as your next message. The message will be deleted after processing. Setup expires in 5 minutes."); });
 bot.callbackQuery("ai_remove", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; aiStore.remove(String(ctx.from.id)); pendingAI.delete(ctx.from.id); await ctx.reply("OpenAI key removed.", { reply_markup: settingsMenu() }); });
-bot.callbackQuery("x_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await ctx.reply(process.env.X_BEARER_TOKEN ? "𝕏 X signals are enabled. Recent public posts are used as supporting evidence; market structure remains the dominant part of the research score." : "𝕏 X signals are currently unavailable. Set X_BEARER_TOKEN on the bot server to enable them. The rest of the bot does not depend on X.", { reply_markup: settingsMenu() }); });
+bot.callbackQuery("x_settings", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply(process.env.X_BEARER_TOKEN ? "𝕏 X signals are enabled. Recent public posts are used as supporting evidence; market structure remains the dominant part of the research score." : "𝕏 X signals are currently unavailable. Set X_BEARER_TOKEN on the bot server to enable them. The rest of the bot does not depend on X.", { reply_markup: settingsMenu() }); });
 bot.callbackQuery("back", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply("Main menu", { reply_markup: menu() }); });
 bot.callbackQuery(/^watch:(.+)$/, async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await watchlists.add(ctx.from.id, ctx.match[1]); await ctx.reply("⭐ Added to watchlist. You will get alerts when monitored thresholds change.", { reply_markup: menu() }); });
 
@@ -140,7 +140,12 @@ bot.callbackQuery(/^analyze:(.+)$/, async ctx => {
   try {
     const pairs = await tokenPairs(ctx.match[1]);
     if (!pairs.length) { await ctx.reply("I couldn't find a Solana market for that token.", { reply_markup: menu() }); return; }
-    const p = pairs[0];
+    const p = pairs.reduce((best, candidate) => {
+      const bestLiquidity = best.liquidity?.usd ?? 0;
+      const candidateLiquidity = candidate.liquidity?.usd ?? 0;
+      if (candidateLiquidity !== bestLiquidity) return candidateLiquidity > bestLiquidity ? candidate : best;
+      return (candidate.volume?.h24 ?? 0) > (best.volume?.h24 ?? 0) ? candidate : best;
+    });
     const flags = riskFlags(p);
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
     const finalScore = researchScore(p, social.available ? social.score : 0);
@@ -172,17 +177,22 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   if (!guard(ctx) || !aiStore) return;
   try {
-    const p = (await tokenPairs(ctx.match[1]))[0];
-    if (!p) { await ctx.reply("Token data is no longer available."); return; }
+    const pairs = await tokenPairs(ctx.match[1]);
+    if (!pairs.length) { await ctx.reply("Token data is no longer available."); return; }
+    const p = pairs.reduce((best, candidate) => {
+      const bestLiquidity = best.liquidity?.usd ?? 0;
+      const candidateLiquidity = candidate.liquidity?.usd ?? 0;
+      if (candidateLiquidity !== bestLiquidity) return candidateLiquidity > bestLiquidity ? candidate : best;
+      return (candidate.volume?.h24 ?? 0) > (best.volume?.h24 ?? 0) ? candidate : best;
+    });
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
     const finalScore = researchScore(p, social.available ? social.score : 0);
     const prompt = buildTokenPrompt({ symbol: p.baseToken?.symbol ?? "Unknown", score: finalScore, riskFlags: riskFlags(p), social: social.available ? `${social.score}/100 — ${social.summary}` : "unavailable", marketContext: `liquidity=${money(p.liquidity?.usd)}, 24h volume=${money(p.volume?.h24)}, 24h change=${p.priceChange?.h24 ?? "unknown"}%` });
     const answer = await analyzeWithOpenAI(prompt, { apiKey: aiStore.get(String(ctx.from.id)), model: process.env.AI_MODEL });
-    await ctx.reply(`🤖 AI Analysis\n\n${answer}`);
-  } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Your key was not displayed."); }
+    await ctx.reply(`🤖 AI Analysis\n\n${answer}`, { reply_markup: menu() });
+  } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Check your key and try again.", { reply_markup: menu() }); }
 });
 
-startAlertMonitor(bot, watchlists, alertStates);
-
 bot.catch(err => console.error("Bot error", err));
+startAlertMonitor(bot, watchlists, alertStates);
 bot.start();
