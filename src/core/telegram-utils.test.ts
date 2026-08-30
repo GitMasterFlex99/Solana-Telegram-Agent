@@ -33,3 +33,9 @@ test("cooldown exposes only user-scoped state", () => {
   assert.equal(cooldown.check(1, 2_000), false);
   assert.equal(cooldown.check(2, 2_000), false);
 });
+
+test("cooldown accepts the first request when the clock starts at zero", () => {
+  const cooldown = createCooldown(10_000);
+  assert.equal(cooldown.check(1, 0), true);
+  assert.equal(cooldown.check(1, 1_000), false);
+});
