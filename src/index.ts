@@ -113,7 +113,8 @@ bot.on("message:text", async ctx => {
   if (expiresAt === undefined) return;
   if (Date.now() > expiresAt) {
     pendingAI.delete(userId);
-    await ctx.reply("AI key setup expired. Open Settings → AI and start again.", { reply_markup: settingsMenu() });
+    await ctx.deleteMessage().catch(() => undefined);
+    await ctx.reply("AI key setup expired. The message was deleted. Open Settings → AI and start again.", { reply_markup: settingsMenu() });
     return;
   }
   if (text.startsWith("/")) return;
