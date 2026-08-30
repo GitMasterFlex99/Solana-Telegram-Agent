@@ -18,3 +18,11 @@ test("discovery rejects pairs younger than 15 minutes", () => {
   const pairs = [{ chainId: "solana", baseToken: { address: "NEW" }, liquidity: { usd: 50_000 }, volume: { h24: 50_000 }, pairCreatedAt: now - 10 * 60_000 }];
   assert.equal(discoverCandidates(pairs, now).length, 0);
 });
+
+test("discovery sorts candidates by volume", () => {
+  const pairs = [
+    { chainId: "solana", baseToken: { address: "A" }, liquidity: { usd: 20_000 }, volume: { h24: 20_000 } },
+    { chainId: "solana", baseToken: { address: "B" }, liquidity: { usd: 20_000 }, volume: { h24: 50_000 } }
+  ];
+  assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["B", "A"]);
+});
