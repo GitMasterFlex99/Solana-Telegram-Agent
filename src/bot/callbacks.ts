@@ -1,6 +1,6 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot } from "grammy";
 import { isAuthorized } from "./auth.js";
-import { mainMenu, settingsMenu } from "./keyboards.js";
+import { mainMenu } from "./keyboards.js";
 
 export type CallbackDeps = {
   allowedChatId?: string;
@@ -26,6 +26,6 @@ export function registerBasicCallbacks(bot: Bot, deps: CallbackDeps): void {
     await ctx.answerCallbackQuery();
     if (!isAuthorized(ctx, deps.allowedChatId) || !deps.aiStore) return;
     deps.aiStore.remove(String(ctx.from.id));
-    await ctx.reply("OpenAI key removed.", { reply_markup: settingsMenu() });
+    await ctx.reply("OpenAI key removed.");
   });
 }
