@@ -4,20 +4,7 @@ import { researchScore, riskFlags } from "../core/scoring.js";
 import { detectAlertEvents, snapshotFor } from "../core/alert-rules-v2.js";
 import { AlertStateStore } from "../core/alert-state-store.js";
 import { WatchlistStore } from "../core/watchlist-store.js";
-
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (true) {
-      const index = next++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index]!);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return results;
-}
+import { mapWithConcurrency } from "../core/concurrency.js";
 
 export function startAlertMonitor(bot: Bot, watchlists: WatchlistStore, states: AlertStateStore, intervalMs = 5 * 60_000): NodeJS.Timeout {
   let running = false;
@@ -70,5 +57,3 @@ export function startAlertMonitor(bot: Bot, watchlists: WatchlistStore, states: 
   void tick();
   return timer;
 }
-
-export { mapWithConcurrency };
