@@ -12,11 +12,19 @@ export function pairAgeHours(pairCreatedAt?: number, now = Date.now()): number |
   return Math.max(0, (now - Number(pairCreatedAt)) / 3_600_000);
 }
 
-export function score(p: PairLike, now = Date.now()): number {
+function activityStats(p: PairLike) {
   const liq = p.liquidity?.usd ?? 0;
   const vol = p.volume?.h24 ?? 0;
   const buys = p.txns?.h24?.buys ?? 0;
   const sells = p.txns?.h24?.sells ?? 0;
+  const transactions = buys + sells;
+  const volumeToLiquidity = liq > 0 ? vol / liq : 0;
+  const buyShare = transactions > 0 ? buys / transactions : 0;
+  return { liq, vol, buys, sells, transactions, volumeToLiquidity, buyShare };
+}
+
+export function score(p: PairLike, now = Date.now()): number {
+  const { liq, vol, buys, sells } = activityStats(p);
   const change = p.priceChange?.h24 ?? 0;
   let s = 0;
   if (liq >= 100_000) s += 30; else if (liq >= 25_000) s += 22; else if (liq >= 10_000) s += 12;
@@ -30,15 +38,24 @@ export function score(p: PairLike, now = Date.now()): number {
 }
 
 export function riskFlags(p: PairLike, now = Date.now()): string[] {
-  const liq = p.liquidity?.usd ?? 0;
-  const vol = p.volume?.h24 ?? 0;
+  const { liq, vol, buys, sells, transactions, volumeToLiquidity, buyShare } = activityStats(p);
   const flags: string[] = [];
   if (liq < 25_000) flags.push("low liquidity");
-  if (liq > 0 && vol / liq > 20) flags.push("very high volume/liquidity");
+  if (liq > 0 && volumeToLiquidity > 20) flags.push("very high volume/liquidity");
+
+  // Extremely balanced buy/sell flow combined with very high turnover can be a
+  // useful warning for inorganic activity. It is deliberately a flag, not a
+  // claim that wash trading has occurred.
+  if (transactions >= 200 && volumeToLiquidity > 15 && buyShare >= 0.45 && buyShare <= 0.55) {
+    flags.push("possible inorganic activity");
+  }
+
   const hours = pairAgeHours(p.pairCreatedAt, now);
   if (hours !== null && hours < 24) flags.push("very new pair");
   if ((p.priceChange?.h24 ?? 0) > 200) flags.push("extreme 24h move");
+  if ((p.priceChange?.h24 ?? 0) < -50) flags.push("severe 24h drawdown");
   if ((p.fdv ?? 0) > 0 && liq > 0 && (p.fdv as number) / liq > 100) flags.push("high FDV/liquidity");
+  if (vol > 0 && liq === 0) flags.push("missing liquidity data");
   return flags;
 }
 
@@ -49,6 +66,6 @@ export function riskFlags(p: PairLike, now = Date.now()): string[] {
 export function researchScore(p: PairLike, socialScore = 0, now = Date.now()): number {
   const market = score(p, now);
   const social = Math.max(0, Math.min(100, socialScore));
-  const riskPenalty = Math.min(15, riskFlags(p, now).length * 3);
+  const riskPenalty = Math.min(20, riskFlags(p, now).length * 3);
   return Math.max(0, Math.min(100, Math.round(market * 0.9 + social * 0.1 - riskPenalty)));
 }
