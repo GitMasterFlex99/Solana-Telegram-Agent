@@ -182,7 +182,7 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Your key was not displayed."); }
 });
 
-startAlertMonitor({ bot, watchlists, alertStates });
+startAlertMonitor(bot, watchlists, alertStates);
 
 bot.catch(err => console.error("Bot error", err));
 bot.start();
