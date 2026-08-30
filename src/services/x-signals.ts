@@ -18,6 +18,8 @@ const unavailable = (reason: string): XSignal => ({
   earlyMentions: 0,
   evidenceMentions: 0,
   lateMentions: 0,
+  promotionalMentions: 0,
+  credibleAccounts: 0,
   summary: "X signal unavailable",
   reason,
 });
