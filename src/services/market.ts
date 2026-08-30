@@ -7,19 +7,28 @@ export function isSolanaAddress(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value.trim());
 }
 
-async function fetchWithTimeout(fetchImpl: typeof fetch, input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1], timeoutMs = 10_000): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetchImpl(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
+async function fetchWithRetry(fetchImpl: typeof fetch, input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetchImpl(input, { ...init, signal: controller.signal });
+      if (response.ok || (response.status !== 429 && response.status < 500)) return response;
+      lastError = new Error(`DexScreener HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250 * 2 ** attempt));
   }
+  throw lastError instanceof Error ? lastError : new Error("Market request failed");
 }
 
 export async function tokenPairs(address: string, fetchImpl: typeof fetch = fetch): Promise<Pair[]> {
   if (!isSolanaAddress(address)) return [];
-  const response = await fetchWithTimeout(fetchImpl, `https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(address)}`);
+  const response = await fetchWithRetry(fetchImpl, `https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(address)}`);
   if (!response.ok) throw new Error(`DexScreener HTTP ${response.status}`);
   const data = await response.json() as unknown;
   if (!Array.isArray(data)) throw new Error("Unexpected market-data response");
