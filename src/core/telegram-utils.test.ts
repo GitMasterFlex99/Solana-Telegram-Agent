@@ -25,3 +25,11 @@ test("cooldown can be cleared", () => {
   cooldown.clear(1);
   assert.equal(cooldown.check(1, 1_001), true);
 });
+
+test("cooldown exposes only user-scoped state", () => {
+  const cooldown = createCooldown(10_000);
+  assert.equal(cooldown.check(1, 1_000), true);
+  assert.equal(cooldown.check(2, 1_000), true);
+  assert.equal(cooldown.check(1, 2_000), false);
+  assert.equal(cooldown.check(2, 2_000), false);
+});
