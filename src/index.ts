@@ -60,7 +60,6 @@ async function sendScan(ctx: any) {
     const pairs = discoverCandidates(await fetchSolanaPairs());
     if (!pairs.length) { await ctx.reply("No candidates passed the basic filters.", { reply_markup: menu() }); return; }
     const ranked = await rankCandidates(pairs, 20);
-
     for (const [i, item] of ranked.slice(0, 5).entries()) {
       const p = item.pair;
       const buys = p.txns?.h24?.buys ?? 0;
@@ -128,7 +127,6 @@ bot.on("message:text", async ctx => {
     return;
   }
   if (text.startsWith("/")) return;
-
   pendingAI.delete(userId);
   try {
     if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
@@ -200,6 +198,19 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Check your key and try again.", { reply_markup: menu() }); }
 });
 
-startAlertMonitor(bot, watchlists, alertStates);
+const alertTimer = startAlertMonitor(bot, watchlists, alertStates);
 bot.catch((err) => console.error("Telegram bot error", err));
+
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Received ${signal}; shutting down gracefully.`);
+  clearInterval(alertTimer);
+  bot.stop();
+}
+
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
 await bot.start();
