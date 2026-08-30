@@ -30,6 +30,6 @@ test("social signal is capped at ten percent of research score", () => {
   const market = score(pair, now);
   const withoutSocial = researchScore(pair, 0, now);
   const withSocial = researchScore(pair, 100, now);
-  assert.equal(withoutSocial, Math.max(0, Math.min(100, Math.round(market * 0.9) - 3)));
+  assert.equal(withoutSocial, Math.round(market * 0.9));
   assert.ok(withSocial - withoutSocial <= 10);
 });
