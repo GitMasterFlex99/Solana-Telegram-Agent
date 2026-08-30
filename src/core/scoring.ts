@@ -24,21 +24,35 @@ function activityStats(p: PairLike) {
 }
 
 export function score(p: PairLike, now = Date.now()): number {
-  const { liq, vol, buys, sells } = activityStats(p);
+  const { liq, vol, transactions, volumeToLiquidity, buyShare } = activityStats(p);
   const change = p.priceChange?.h24 ?? 0;
   let s = 0;
+
   if (liq >= 100_000) s += 30; else if (liq >= 25_000) s += 22; else if (liq >= 10_000) s += 12;
   if (vol >= 500_000) s += 25; else if (vol >= 100_000) s += 18; else if (vol >= 25_000) s += 10;
-  if (buys + sells > 0 && buys > sells) s += Math.min(20, Math.round(buys / (buys + sells) * 20));
-  if (change > 0 && change < 100) s += 10; else if (change >= 100) s += 4;
+
+  // Buying pressure is useful only when there is enough activity to make the
+  // ratio meaningful; a tiny sample should not materially affect discovery.
+  if (transactions >= 20 && buyShare > 0.5) s += Math.min(15, Math.round((buyShare - 0.5) * 30));
+
+  if (change > 0 && change < 100) s += 10; else if (change >= 100 && change < 200) s += 4;
   if (liq > 0 && (p.fdv ?? 0) / liq < 100) s += 10;
+
+  // Extremely high turnover relative to available liquidity is a quality
+  // concern. Penalize it here as well as exposing it as a risk flag later.
+  if (volumeToLiquidity > 20) s -= 12;
+  else if (volumeToLiquidity > 10) s -= 5;
+
+  if (change > 200) s -= 8;
+  if (change < -50) s -= 15;
+
   const hours = pairAgeHours(p.pairCreatedAt, now);
   if (hours !== null && hours < 2) s -= 15;
   return Math.max(0, Math.min(100, s));
 }
 
 export function riskFlags(p: PairLike, now = Date.now()): string[] {
-  const { liq, vol, buys, sells, transactions, volumeToLiquidity, buyShare } = activityStats(p);
+  const { liq, vol, transactions, volumeToLiquidity, buyShare } = activityStats(p);
   const flags: string[] = [];
   if (liq < 25_000) flags.push("low liquidity");
   if (liq > 0 && volumeToLiquidity > 20) flags.push("very high volume/liquidity");
