@@ -31,19 +31,20 @@ export function detectAlertEvents(previous: AlertSnapshot | undefined, current: 
   if (!previous) return [];
   const events: AlertEvent[] = [];
 
-  if (previous.momentum < 70 && current.momentum >= 70) {
+  // Hysteresis prevents repeated notifications when a value hovers around a threshold.
+  if (previous.momentum < 65 && current.momentum >= 70) {
     events.push({ type: "momentum", message: "Momentum crossed 70/100." });
   }
-  if (previous.opportunity < 75 && current.opportunity >= 75) {
+  if (previous.opportunity < 70 && current.opportunity >= 75) {
     events.push({ type: "opportunity", message: "Research score crossed 75/100." });
   }
-  if (previous.riskScore !== undefined && current.riskScore !== undefined && previous.riskScore < 60 && current.riskScore >= 60) {
+  if (previous.riskScore !== undefined && current.riskScore !== undefined && previous.riskScore < 50 && current.riskScore >= 60) {
     events.push({ type: "risk", message: "Risk score increased materially." });
   }
-  if (previous.priceChange24h < 20 && current.priceChange24h >= 20) {
+  if (previous.priceChange24h < 15 && current.priceChange24h >= 20) {
     events.push({ type: "move", message: "24h price change crossed +20%." });
   }
-  if (previous.priceChange24h > -20 && current.priceChange24h <= -20) {
+  if (previous.priceChange24h > -15 && current.priceChange24h <= -20) {
     events.push({ type: "move", message: "24h price change crossed -20%." });
   }
 
