@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AlertSnapshot } from "./alert-rules.js";
+import type { AlertSnapshot } from "./alert-rules-v2.js";
 
 export type AlertState = Record<string, AlertSnapshot>;
 
@@ -10,7 +10,9 @@ function isSnapshot(value: unknown): value is AlertSnapshot {
   return typeof item.opportunity === "number" && Number.isFinite(item.opportunity)
     && typeof item.momentum === "number" && Number.isFinite(item.momentum)
     && typeof item.priceChange24h === "number" && Number.isFinite(item.priceChange24h)
-    && (item.riskScore === undefined || (typeof item.riskScore === "number" && Number.isFinite(item.riskScore)));
+    && (item.riskScore === undefined || (typeof item.riskScore === "number" && Number.isFinite(item.riskScore)))
+    && (item.liquidityUsd === undefined || (typeof item.liquidityUsd === "number" && Number.isFinite(item.liquidityUsd)))
+    && (item.volume24hUsd === undefined || (typeof item.volume24hUsd === "number" && Number.isFinite(item.volume24hUsd)));
 }
 
 export class AlertStateStore {
@@ -18,6 +20,7 @@ export class AlertStateStore {
   private loaded = false;
   private writeQueue: Promise<void> = Promise.resolve();
   constructor(private readonly file = "data/alert-state.json") {}
+
   private async load() {
     if (this.loaded) return;
     try {
@@ -28,7 +31,9 @@ export class AlertStateStore {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     } finally { this.loaded = true; }
   }
+
   async get(key: string): Promise<AlertSnapshot | undefined> { await this.load(); return this.data[key]; }
+
   async set(key: string, snapshot: AlertSnapshot): Promise<void> {
     await this.load();
     this.data[key] = snapshot;
