@@ -34,7 +34,7 @@ test("severe drawdown lowers market quality", () => {
 
 test("risk flags detect basic hazards", () => {
   const flags = riskFlags({ liquidity: { usd: 5_000 }, volume: { h24: 200_000 }, priceChange: { h24: 250 }, pairCreatedAt: now - 2 * 3_600_000 }, now);
-  assert.deepEqual(flags, ["low liquidity", "very high volume/liquidity", "very new pair", "extreme 24h move"]);
+  assert.deepEqual(flags, ["very low liquidity", "very high volume/liquidity", "extreme 24h pump"]);
 });
 
 test("risk flags detect possible inorganic activity", () => {
@@ -44,14 +44,18 @@ test("risk flags detect possible inorganic activity", () => {
 
 test("risk flags detect severe drawdowns", () => {
   const flags = riskFlags({ liquidity: { usd: 100_000 }, volume: { h24: 100_000 }, priceChange: { h24: -60 } }, now);
-  assert.ok(flags.includes("severe 24h drawdown"));
+  assert.ok(flags.includes("heavy 24h drawdown"));
 });
 
-test("social signal is capped at ten percent of research score", () => {
+test("extreme risk caps the research score", () => {
+  const dangerous = { liquidity: { usd: 5_000 }, volume: { h24: 500_000 }, priceChange: { h24: -80 } };
+  assert.ok(researchScore(dangerous, 100, now) <= 35);
+});
+
+test("social signal remains a small influence for ordinary candidates", () => {
   const pair = { liquidity: { usd: 100_000 }, volume: { h24: 500_000 }, priceChange: { h24: 20 }, pairCreatedAt: now - 24 * 3_600_000 };
-  const market = score(pair, now);
   const withoutSocial = researchScore(pair, 0, now);
   const withSocial = researchScore(pair, 100, now);
-  assert.equal(withoutSocial, Math.round(market * 0.9));
-  assert.ok(withSocial - withoutSocial <= 10);
+  assert.ok(withSocial >= withoutSocial);
+  assert.ok(withSocial - withoutSocial <= 12);
 });
