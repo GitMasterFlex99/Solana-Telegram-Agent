@@ -195,7 +195,7 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
     const finalScore = researchScore(p, social.available ? social.score : 0);
     const prompt = buildTokenPrompt({ symbol: p.baseToken?.symbol ?? "Unknown", score: finalScore, riskFlags: riskFlags(p), social: social.available ? `${social.score}/100 — ${social.summary}` : "unavailable", marketContext: `liquidity=${money(p.liquidity?.usd)}, 24h volume=${money(p.volume?.h24)}, 24h change=${p.priceChange?.h24 ?? "unknown"}%` });
-    const result = await analyzeWithOpenAI(aiStore.get(String(ctx.from.id))!, prompt);
+    const result = await analyzeWithOpenAI(prompt, { apiKey: aiStore.get(String(ctx.from.id))! });
     await ctx.reply(result, { reply_markup: menu() });
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Check your key and try again.", { reply_markup: menu() }); }
 });
