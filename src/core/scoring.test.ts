@@ -25,6 +25,16 @@ test("risk flags detect basic hazards", () => {
   assert.deepEqual(flags, ["low liquidity", "very high volume/liquidity", "very new pair", "extreme 24h move"]);
 });
 
+test("risk flags detect possible inorganic activity", () => {
+  const flags = riskFlags({ liquidity: { usd: 50_000 }, volume: { h24: 800_000 }, txns: { h24: { buys: 210, sells: 190 } } }, now);
+  assert.ok(flags.includes("possible inorganic activity"));
+});
+
+test("risk flags detect severe drawdowns", () => {
+  const flags = riskFlags({ liquidity: { usd: 100_000 }, volume: { h24: 100_000 }, priceChange: { h24: -60 } }, now);
+  assert.ok(flags.includes("severe 24h drawdown"));
+});
+
 test("social signal is capped at ten percent of research score", () => {
   const pair = { liquidity: { usd: 100_000 }, volume: { h24: 500_000 }, priceChange: { h24: 20 }, pairCreatedAt: now - 24 * 3_600_000 };
   const market = score(pair, now);
