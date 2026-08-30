@@ -20,6 +20,18 @@ test("new pairs receive a score penalty", () => {
   assert.ok(score(newPair, now) < score(oldPair, now));
 });
 
+test("high turnover relative to liquidity lowers market quality", () => {
+  const normal = { liquidity: { usd: 100_000 }, volume: { h24: 500_000 }, priceChange: { h24: 20 } };
+  const extreme = { ...normal, volume: { h24: 2_500_000 } };
+  assert.ok(score(extreme, now) < score(normal, now));
+});
+
+test("severe drawdown lowers market quality", () => {
+  const stable = { liquidity: { usd: 100_000 }, volume: { h24: 100_000 }, priceChange: { h24: 10 } };
+  const drawdown = { ...stable, priceChange: { h24: -60 } };
+  assert.ok(score(drawdown, now) < score(stable, now));
+});
+
 test("risk flags detect basic hazards", () => {
   const flags = riskFlags({ liquidity: { usd: 5_000 }, volume: { h24: 200_000 }, priceChange: { h24: 250 }, pairCreatedAt: now - 2 * 3_600_000 }, now);
   assert.deepEqual(flags, ["low liquidity", "very high volume/liquidity", "very new pair", "extreme 24h move"]);
