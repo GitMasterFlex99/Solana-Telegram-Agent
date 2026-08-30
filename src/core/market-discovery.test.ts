@@ -37,3 +37,22 @@ test("discovery keeps only the strongest pool for each token", () => {
   assert.deepEqual(result.map(p => p.baseToken?.address), ["B", "A"]);
   assert.equal(result.find(p => p.baseToken?.address === "A")?.dexId, "dex-2");
 });
+
+test("discovery uses volume when pool liquidity is tied", () => {
+  const pairs = [
+    { chainId: "solana", baseToken: { address: "A" }, dexId: "low-volume", liquidity: { usd: 50_000 }, volume: { h24: 40_000 } },
+    { chainId: "solana", baseToken: { address: "A" }, dexId: "high-volume", liquidity: { usd: 50_000 }, volume: { h24: 90_000 } }
+  ];
+  const result = discoverCandidates(pairs, now);
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.dexId, "high-volume");
+});
+
+test("discovery ignores duplicate pools but keeps different tokens", () => {
+  const pairs = [
+    { chainId: "solana", baseToken: { address: "A" }, liquidity: { usd: 100_000 }, volume: { h24: 100_000 } },
+    { chainId: "solana", baseToken: { address: "A" }, liquidity: { usd: 20_000 }, volume: { h24: 500_000 } },
+    { chainId: "solana", baseToken: { address: "B" }, liquidity: { usd: 80_000 }, volume: { h24: 80_000 } }
+  ];
+  assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["A", "B"]);
+});
