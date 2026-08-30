@@ -17,9 +17,11 @@ test("watchlist survives a fresh store instance", async () => {
   const first = new WatchlistStore(file);
   assert.equal(await first.add(123, "So11111111111111111111111111111111111111112", "SOL"), true);
   const second = new WatchlistStore(file);
-  assert.deepEqual(await second.list(123), [
-    { address: "So11111111111111111111111111111111111111112", label: "SOL", addedAt: (await second.list(123))[0]!.addedAt }
-  ]);
+  const items = await second.list(123);
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.address, "So11111111111111111111111111111111111111112");
+  assert.equal(items[0]?.label, "SOL");
+  assert.equal(typeof items[0]?.addedAt, "number");
 });
 
 test("alert state survives a fresh store instance", async () => {
