@@ -36,7 +36,7 @@ test("discovery sorts candidates by volume", () => {
   assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["B", "A"]);
 });
 
-test("discovery removes RugCheck danger candidates", () => {
+test("discovery removes danger candidates", () => {
   const pairs = [
     { chainId: "solana", baseToken: { address: "DANGER" }, liquidity: { usd: 100_000 }, volume: { h24: 100_000 }, security: { riskLevel: "Danger" } },
     { chainId: "solana", baseToken: { address: "SAFE" }, liquidity: { usd: 90_000 }, volume: { h24: 90_000 }, security: { riskLevel: "Good" } }
