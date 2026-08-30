@@ -13,11 +13,7 @@ import { validateProductionConfig } from "./core/production-guards.js";
 type Pair = DiscoveredPair & { priceChange?: { h1?: number; h24?: number } };
 type RankedCandidate = { pair: Pair; social: Awaited<ReturnType<typeof fetchXSignal>>; researchScore: number };
 
-const configErrors = validateProductionConfig({
-  telegramToken: process.env.TELEGRAM_BOT_TOKEN,
-  telegramChatId: process.env.TELEGRAM_CHAT_ID,
-  aiEncryptionKey: process.env.AI_KEY_ENCRYPTION_KEY,
-});
+const configErrors = validateProductionConfig({ telegramToken: process.env.TELEGRAM_BOT_TOKEN, telegramChatId: process.env.TELEGRAM_CHAT_ID, aiEncryptionKey: process.env.AI_KEY_ENCRYPTION_KEY });
 if (configErrors.length) throw new Error(`Invalid production configuration: ${configErrors.join("; ")}`);
 
 const token = process.env.TELEGRAM_BOT_TOKEN!;
@@ -55,26 +51,31 @@ async function rankCandidates(pairs: Pair[], socialLimit = 20): Promise<RankedCa
 }
 
 async function sendScan(ctx: any) {
-  await ctx.reply("🔎 Scanning Solana markets...");
+  await ctx.reply("🔎 <b>Scanning Solana markets…</b>", { parse_mode: "HTML" });
   try {
     const pairs = discoverCandidates(await fetchSolanaPairs());
     if (!pairs.length) { await ctx.reply("No candidates passed the basic filters.", { reply_markup: menu() }); return; }
     const ranked = await rankCandidates(pairs, 20);
+    await ctx.reply(`Found <b>${ranked.length}</b> candidates. Showing the top <b>${Math.min(5, ranked.length)}</b> by research score.`, { parse_mode: "HTML" });
     for (const [i, item] of ranked.slice(0, 5).entries()) {
       const p = item.pair;
       const buys = p.txns?.h24?.buys ?? 0;
       const sells = p.txns?.h24?.sells ?? 0;
       const flags = riskFlags(p);
       const text = [
-        `${i + 1}. ${p.baseToken?.symbol ?? "Unknown"} — ${item.researchScore}/100`,
-        `Liquidity: ${money(p.liquidity?.usd)}   Volume: ${money(p.volume?.h24)}`,
-        `24h: ${p.priceChange?.h24?.toFixed(1) ?? "—"}%   Buys/Sells: ${buys}/${sells}`,
-        `Age: ${age(p.pairCreatedAt)}   FDV: ${money(p.fdv)}`,
-        flags.length ? `⚠️ ${flags.join(", ")}` : "Risk flags: none from basic checks",
-        `𝕏 Social: ${item.social.available ? `${item.social.score}/100 — ${item.social.summary}` : "unavailable"}`,
-        "Research score weighs market structure most heavily; social is supporting evidence only."
+        `<b>#${i + 1}  ${p.baseToken?.symbol ?? "Unknown"}</b>   <b>${item.researchScore}/100</b>`,
+        `<i>${p.baseToken?.name ?? "Unknown token"}</i>`,
+        "",
+        `<b>Market</b>  Liquidity ${money(p.liquidity?.usd)}  •  24h volume ${money(p.volume?.h24)}`,
+        `24h move ${p.priceChange?.h24?.toFixed(1) ?? "—"}%  •  Buys/Sells ${buys}/${sells}`,
+        `Age ${age(p.pairCreatedAt)}  •  FDV ${money(p.fdv)}`,
+        "",
+        flags.length ? `⚠️ <b>Risk:</b> ${flags.join(", ")}` : "✅ <b>Risk:</b> no basic flags",
+        `𝕏 <b>Social:</b> ${item.social.available ? `${item.social.score}/100 — ${item.social.summary}` : "unavailable"}`
       ].join("\n");
-      await ctx.reply(text, { reply_markup: new InlineKeyboard().text("Analyze", `analyze:${p.baseToken?.address ?? ""}`).text("⭐ Watch", `watch:${p.baseToken?.address ?? ""}`) });
+      const keyboard = new InlineKeyboard().text("Analyze", `analyze:${p.baseToken?.address ?? ""}`).text("⭐ Watch", `watch:${p.baseToken?.address ?? ""}`);
+      if (p.url) keyboard.row().url("Open market", p.url);
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
     }
   } catch (e) {
     console.error(e);
@@ -127,6 +128,7 @@ bot.on("message:text", async ctx => {
     return;
   }
   if (text.startsWith("/")) return;
+
   pendingAI.delete(userId);
   try {
     if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
@@ -198,19 +200,16 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Check your key and try again.", { reply_markup: menu() }); }
 });
 
-const alertTimer = startAlertMonitor(bot, watchlists, alertStates);
-bot.catch((err) => console.error("Telegram bot error", err));
-
+startAlertMonitor(bot, watchlists, alertStates);
 let shuttingDown = false;
-async function shutdown(signal: string) {
+const shutdown = async (signal: string) => {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`Received ${signal}; shutting down gracefully.`);
-  clearInterval(alertTimer);
-  bot.stop();
-}
-
-process.once("SIGINT", () => void shutdown("SIGINT"));
-process.once("SIGTERM", () => void shutdown("SIGTERM"));
-
+  console.log(`Received ${signal}; shutting down gracefully...`);
+  await bot.stop();
+  process.exit(0);
+};
+process.once("SIGINT", () => { void shutdown("SIGINT"); });
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+bot.catch((err) => console.error("Telegram bot error", err));
 await bot.start();
