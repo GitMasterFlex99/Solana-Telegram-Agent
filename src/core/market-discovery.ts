@@ -15,13 +15,40 @@ export type DiscoveredPair = {
   txns?: { h24?: { buys?: number; sells?: number } };
 };
 
+type TokenProfile = { chainId?: string; tokenAddress?: string };
+
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
-export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise<DiscoveredPair[]> {
-  const response = await fetchImpl("https://api.dexscreener.com/latest/dex/search?q=SOL");
+async function fetchJson<T>(fetchImpl: typeof fetch, url: string): Promise<T> {
+  const response = await fetchImpl(url);
   if (!response.ok) throw new Error(`DexScreener request failed: ${response.status}`);
-  const data = await response.json() as { pairs?: DiscoveredPair[] };
-  return (data.pairs ?? []).filter((pair) => pair.chainId === "solana");
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Discover actual Solana tokens from DexScreener's latest token profiles,
+ * then fetch their markets. Searching for "SOL" returns SOL itself and is not
+ * a useful meme-token discovery strategy.
+ */
+export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise<DiscoveredPair[]> {
+  const profiles = await fetchJson<TokenProfile[]>(fetchImpl, "https://api.dexscreener.com/token-profiles/latest/v1");
+  const addresses = [...new Set(
+    profiles
+      .filter((profile) => profile.chainId === "solana")
+      .map((profile) => profile.tokenAddress)
+      .filter((address): address is string => Boolean(address) && address !== SOL_MINT)
+  )].slice(0, 20);
+
+  const results = await Promise.all(addresses.map(async (address) => {
+    try {
+      const pairs = await fetchJson<DiscoveredPair[]>(fetchImpl, `https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(address)}`);
+      return pairs.filter((pair) => pair.chainId === "solana");
+    } catch {
+      return [];
+    }
+  }));
+
+  return results.flat();
 }
 
 /**
@@ -40,6 +67,7 @@ export function discoverCandidates(pairs: DiscoveredPair[], now = Date.now()): D
   const candidates = pairs
     .filter((p) => p.chainId === "solana")
     .filter((p) => p.baseToken?.address !== SOL_MINT)
+    .filter((p) => p.baseToken?.symbol?.toUpperCase() !== "SOL")
     .filter((p) => Boolean(p.baseToken?.address))
     .filter((p) => (p.liquidity?.usd ?? 0) >= 10_000)
     .filter((p) => (p.volume?.h24 ?? 0) >= 10_000)
