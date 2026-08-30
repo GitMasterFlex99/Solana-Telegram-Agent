@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard } from "grammy";
 import { discoverCandidates, fetchSolanaPairs, type DiscoveredPair } from "./core/market-discovery.js";
-import { riskFlags, score } from "./core/scoring.js";
+import { researchScore, riskFlags, score } from "./core/scoring.js";
 import { analyzeWithOpenAI, buildTokenPrompt } from "./core/ai.js";
 import { createEncryptedAIStore } from "./core/encrypted-ai-store.js";
 import { WatchlistStore } from "./core/watchlist-store.js";
@@ -10,6 +10,7 @@ import { fetchXSignal } from "./services/x-signals.js";
 import { startAlertMonitor } from "./services/alert-monitor.js";
 
 type Pair = DiscoveredPair & { priceChange?: { h1?: number; h24?: number } };
+type RankedCandidate = { pair: Pair; social: Awaited<ReturnType<typeof fetchXSignal>>; researchScore: number };
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowedChatId = process.env.TELEGRAM_CHAT_ID;
@@ -18,7 +19,8 @@ const bot = new Bot(token);
 const aiStore = process.env.AI_KEY_ENCRYPTION_KEY ? createEncryptedAIStore() : null;
 const watchlists = new WatchlistStore();
 const alertStates = new AlertStateStore();
-const pendingAI = new Set<number>();
+const pendingAI = new Map<number, number>();
+const AI_SETUP_TTL_MS = 5 * 60_000;
 
 const money = (n?: number) => !Number.isFinite(n) ? "—" : n! >= 1e6 ? `$${(n! / 1e6).toFixed(1)}M` : n! >= 1e3 ? `$${(n! / 1e3).toFixed(1)}K` : `$${n!.toFixed(0)}`;
 const age = (ts?: number) => {
@@ -40,22 +42,28 @@ async function sendScan(ctx: any) {
   await ctx.reply("🔎 Scanning Solana markets...");
   try {
     const pairs = discoverCandidates(await fetchSolanaPairs());
-    const candidates = pairs.sort((a, b) => score(b) - score(a)).slice(0, 5);
-    if (!candidates.length) { await ctx.reply("No candidates passed the basic filters.", { reply_markup: menu() }); return; }
-    const signals = await Promise.all(candidates.map(p => fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "")));
-    for (const [i, p] of candidates.entries()) {
+    const pool = pairs.sort((a, b) => score(b) - score(a)).slice(0, 10);
+    if (!pool.length) { await ctx.reply("No candidates passed the basic filters.", { reply_markup: menu() }); return; }
+
+    const ranked: RankedCandidate[] = await Promise.all(pool.map(async pair => {
+      const social = await fetchXSignal(pair.baseToken?.symbol ?? "", pair.baseToken?.address ?? "");
+      return { pair, social, researchScore: researchScore(pair, social.available ? social.score : 0) };
+    }));
+    ranked.sort((a, b) => b.researchScore - a.researchScore);
+
+    for (const [i, item] of ranked.slice(0, 5).entries()) {
+      const p = item.pair;
       const buys = p.txns?.h24?.buys ?? 0;
       const sells = p.txns?.h24?.sells ?? 0;
       const flags = riskFlags(p);
-      const social = signals[i];
       const text = [
-        `${i + 1}. ${p.baseToken?.symbol ?? "Unknown"} — ${score(p)}/100`,
+        `${i + 1}. ${p.baseToken?.symbol ?? "Unknown"} — ${item.researchScore}/100`,
         `Liquidity: ${money(p.liquidity?.usd)}   Volume: ${money(p.volume?.h24)}`,
         `24h: ${p.priceChange?.h24?.toFixed(1) ?? "—"}%   Buys/Sells: ${buys}/${sells}`,
         `Age: ${age(p.pairCreatedAt)}   FDV: ${money(p.fdv)}`,
         flags.length ? `⚠️ ${flags.join(", ")}` : "Risk flags: none from basic checks",
-        `𝕏 Social: ${social.available ? `${social.score}/100 — ${social.summary}` : "unavailable"}`,
-        "Research score only — not a buy signal."
+        `𝕏 Social: ${item.social.available ? `${item.social.score}/100 — ${item.social.summary}` : "unavailable"}`,
+        "Research score weighs market structure most heavily; social is supporting evidence only."
       ].join("\n");
       await ctx.reply(text, { reply_markup: new InlineKeyboard().text("Analyze", `analyze:${p.baseToken?.address ?? ""}`).text("⭐ Watch", `watch:${p.baseToken?.address ?? ""}`) });
     }
@@ -90,10 +98,10 @@ bot.command("help", async ctx => { if (guard(ctx)) await ctx.reply("/scan — fi
 bot.callbackQuery("scan", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await sendScan(ctx); });
 bot.callbackQuery("watchlist", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const items = await watchlists.list(userId); await ctx.reply(items.length ? `⭐ Watchlist\n\n${items.map((x, i) => `${i + 1}. ${x.label ?? x.address}`).join("\n")}` : "⭐ Your watchlist is empty.\n\nUse /watch <token address> from a token screen.", { reply_markup: menu() }); });
 bot.callbackQuery("settings", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply(settingsText(ctx.from?.id), { reply_markup: settingsMenu() }); });
-bot.callbackQuery("ai_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const connected = Boolean(aiStore?.has(String(userId))); const kb = new InlineKeyboard(); if (connected) kb.text("Remove AI key", "ai_remove"); else kb.text("Connect OpenAI", "ai_add"); kb.row().text("⬅️ Settings", "settings"); await ctx.reply(`🤖 AI Analysis\n\n${connected ? "Connected — token screens can use your key." : "Optional — the bot works normally without AI."}\n\nFor safety, key setup only works in a private chat and the key message is deleted after processing.`, { reply_markup: kb }); });
-bot.callbackQuery("ai_add", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; if (ctx.chat?.type !== "private") { await ctx.reply("Connect an AI key only from a private chat."); return; } pendingAI.add(ctx.from.id); await ctx.reply("Send your OpenAI API key as your next message. The message will be deleted after the key is processed."); });
-bot.callbackQuery("ai_remove", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; aiStore.remove(String(ctx.from.id)); await ctx.reply("OpenAI key removed.", { reply_markup: settingsMenu() }); });
-bot.callbackQuery("x_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await ctx.reply(process.env.X_BEARER_TOKEN ? "𝕏 X signals are enabled. The bot looks for recent public posts mentioning the token and scores independent accounts, early mentions and evidence-style language. X API access is optional." : "𝕏 X signals are currently unavailable. Set X_BEARER_TOKEN on the bot server to enable them. The rest of the bot does not depend on X.", { reply_markup: settingsMenu() }); });
+bot.callbackQuery("ai_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const connected = Boolean(aiStore?.has(String(userId))); const kb = new InlineKeyboard(); if (connected) kb.text("Remove AI key", "ai_remove"); else kb.text("Connect OpenAI", "ai_add"); kb.row().text("⬅️ Settings", "settings"); await ctx.reply(`🤖 AI Analysis\n\n${connected ? "Connected — token screens can use your key." : "Optional — the bot works normally without AI."}\n\nFor safety, key setup only works in a private chat. Your key message is deleted after processing. Setup expires after 5 minutes.`, { reply_markup: kb }); });
+bot.callbackQuery("ai_add", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; if (ctx.chat?.type !== "private") { await ctx.reply("Connect an AI key only from a private chat."); return; } pendingAI.set(ctx.from.id, Date.now() + AI_SETUP_TTL_MS); await ctx.reply("Send your OpenAI API key as your next message. The message will be deleted after processing. Setup expires in 5 minutes."); });
+bot.callbackQuery("ai_remove", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; aiStore.remove(String(ctx.from.id)); pendingAI.delete(ctx.from.id); await ctx.reply("OpenAI key removed.", { reply_markup: settingsMenu() }); });
+bot.callbackQuery("x_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await ctx.reply(process.env.X_BEARER_TOKEN ? "𝕏 X signals are enabled. Recent public posts are used as supporting evidence; market structure remains the dominant part of the research score." : "𝕏 X signals are currently unavailable. Set X_BEARER_TOKEN on the bot server to enable them. The rest of the bot does not depend on X.", { reply_markup: settingsMenu() }); });
 bot.callbackQuery("back", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply("Main menu", { reply_markup: menu() }); });
 bot.callbackQuery(/^watch:(.+)$/, async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await watchlists.add(ctx.from.id, ctx.match[1]); await ctx.reply("⭐ Added to watchlist. You will get alerts when monitored thresholds change.", { reply_markup: menu() }); });
 
@@ -101,15 +109,24 @@ bot.on("message:text", async ctx => {
   if (!guard(ctx) || !ctx.message || !ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const text = ctx.message.text.trim();
-  if (pendingAI.has(userId)) {
+  const expiresAt = pendingAI.get(userId);
+  if (expiresAt === undefined) return;
+  if (Date.now() > expiresAt) {
     pendingAI.delete(userId);
-    try {
-      if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
-      aiStore?.set(String(userId), text);
-      await ctx.deleteMessage().catch(() => undefined);
-      await ctx.reply("OpenAI key saved securely. The key message was deleted.", { reply_markup: settingsMenu() });
-    } catch { await ctx.deleteMessage().catch(() => undefined); await ctx.reply("Couldn't save that key. Check the key format and server encryption configuration."); }
+    await ctx.reply("AI key setup expired. Open Settings → AI and start again.", { reply_markup: settingsMenu() });
     return;
+  }
+  if (text.startsWith("/")) return;
+
+  pendingAI.delete(userId);
+  try {
+    if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
+    aiStore?.set(String(userId), text);
+    await ctx.deleteMessage().catch(() => undefined);
+    await ctx.reply("OpenAI key saved securely. The key message was deleted.", { reply_markup: settingsMenu() });
+  } catch {
+    await ctx.deleteMessage().catch(() => undefined);
+    await ctx.reply("Couldn't save that key. Check the key format and server encryption configuration.");
   }
 });
 
@@ -122,10 +139,12 @@ bot.callbackQuery(/^analyze:(.+)$/, async ctx => {
     const p = pairs[0];
     const flags = riskFlags(p);
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
+    const finalScore = researchScore(p, social.available ? social.score : 0);
     const text = [
       `🔍 ${p.baseToken?.symbol ?? "Unknown"}`,
       p.baseToken?.name ?? "",
-      `Research score: ${score(p)}/100`,
+      `Research score: ${finalScore}/100`,
+      `Market score: ${score(p)}/100`,
       `Price: $${p.priceUsd ?? "—"}`,
       `Liquidity: ${money(p.liquidity?.usd)}`,
       `24h volume: ${money(p.volume?.h24)}`,
@@ -152,7 +171,8 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
     const p = (await tokenPairs(ctx.match[1]))[0];
     if (!p) { await ctx.reply("Token data is no longer available."); return; }
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
-    const prompt = buildTokenPrompt({ symbol: p.baseToken?.symbol ?? "Unknown", score: score(p), riskFlags: riskFlags(p), social: social.available ? `${social.score}/100 — ${social.summary}` : "unavailable", marketContext: `liquidity=${money(p.liquidity?.usd)}, 24h volume=${money(p.volume?.h24)}, 24h change=${p.priceChange?.h24 ?? "unknown"}%` });
+    const finalScore = researchScore(p, social.available ? social.score : 0);
+    const prompt = buildTokenPrompt({ symbol: p.baseToken?.symbol ?? "Unknown", score: finalScore, riskFlags: riskFlags(p), social: social.available ? `${social.score}/100 — ${social.summary}` : "unavailable", marketContext: `liquidity=${money(p.liquidity?.usd)}, 24h volume=${money(p.volume?.h24)}, 24h change=${p.priceChange?.h24 ?? "unknown"}%` });
     const answer = await analyzeWithOpenAI(prompt, { apiKey: aiStore.get(String(ctx.from.id)), model: process.env.AI_MODEL });
     await ctx.reply(`🤖 AI Analysis\n\n${answer}`);
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Your key was not displayed."); }
