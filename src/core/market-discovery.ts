@@ -20,6 +20,8 @@ export type DiscoveredPair = {
 
 type TokenProfile = { chainId?: string; tokenAddress?: string };
 const SOL_MINT = "So11111111111111111111111111111111111111112";
+const MAX_DISCOVERY_PROFILES = 60;
+const TOKEN_BATCH_SIZE = 30;
 
 async function fetchJson<T>(fetchImpl: typeof fetch, url: string): Promise<T> {
   const response = await fetchImpl(url);
@@ -33,29 +35,29 @@ export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise
     profiles.filter((profile) => profile.chainId === "solana")
       .map((profile) => profile.tokenAddress)
       .filter((address): address is string => Boolean(address) && address !== SOL_MINT)
-  )].slice(0, 50);
+  )].slice(0, MAX_DISCOVERY_PROFILES);
 
-  const results = await Promise.all(addresses.map(async (address) => {
+  const pairs: DiscoveredPair[] = [];
+  for (let offset = 0; offset < addresses.length; offset += TOKEN_BATCH_SIZE) {
+    const batch = addresses.slice(offset, offset + TOKEN_BATCH_SIZE);
     try {
-      const pairs = await fetchJson<DiscoveredPair[]>(fetchImpl, `https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(address)}`);
-      return pairs.filter((pair) => pair.chainId === "solana");
+      const batchPairs = await fetchJson<DiscoveredPair[]>(
+        fetchImpl,
+        `https://api.dexscreener.com/tokens/v1/solana/${batch.map(encodeURIComponent).join(",")}`
+      );
+      pairs.push(...batchPairs.filter((pair) => pair.chainId === "solana"));
     } catch {
-      return [];
+      // Continue if one discovery batch fails.
     }
-  }));
+  }
 
-  const pairs = results.flat();
   const bestByToken = new Map<string, DiscoveredPair>();
   for (const pair of pairs) {
     const address = pair.baseToken?.address;
     if (!address || address === SOL_MINT || pair.baseToken?.symbol?.toUpperCase() === "SOL") continue;
     const current = bestByToken.get(address);
     if (!current) bestByToken.set(address, pair);
-    else {
-      const currentStrength = (current.liquidity?.usd ?? 0) * 0.6 + (current.volume?.h24 ?? 0) * 0.4;
-      const pairStrength = (pair.liquidity?.usd ?? 0) * 0.6 + (pair.volume?.h24 ?? 0) * 0.4;
-      if (pairStrength > currentStrength) bestByToken.set(address, pair);
-    }
+    else bestByToken.set(address, betterPair(current, pair));
   }
 
   const securityAddresses = [...bestByToken.entries()]
@@ -64,16 +66,22 @@ export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise
       const bStrength = (b[1].liquidity?.usd ?? 0) * 0.6 + (b[1].volume?.h24 ?? 0) * 0.4;
       return bStrength - aStrength;
     })
-    .slice(0, 15)
+    .slice(0, 5)
     .map(([address]) => address);
 
-  const securityEntries = await Promise.all(securityAddresses.map(async (address) => [address, await fetchRugCheckSummary(address, fetchImpl)] as const));
+  const securityEntries = await Promise.all(
+    securityAddresses.map(async (address) => [address, await fetchRugCheckSummary(address, fetchImpl)] as const)
+  );
   const securityByToken = new Map<string, RugCheckSummary>();
-  for (const [address, security] of securityEntries) if (security) securityByToken.set(address, security);
+  for (const [address, security] of securityEntries) {
+    if (security) securityByToken.set(address, security);
+  }
 
-  return pairs.map((pair) => {
+  return [...bestByToken.values()].map((pair) => {
     const address = pair.baseToken?.address;
-    return address && securityByToken.has(address) ? { ...pair, security: securityByToken.get(address) } : pair;
+    return address && securityByToken.has(address)
+      ? { ...pair, security: securityByToken.get(address) }
+      : pair;
   });
 }
 
