@@ -1,3 +1,5 @@
+import type { RugCheckSummary } from "../services/rugcheck.js";
+
 export type PairLike = {
   priceChange?: { h24?: number };
   volume?: { h24?: number };
@@ -5,6 +7,7 @@ export type PairLike = {
   fdv?: number;
   pairCreatedAt?: number;
   txns?: { h24?: { buys?: number; sells?: number } };
+  security?: RugCheckSummary;
 };
 
 export function pairAgeHours(pairCreatedAt?: number, now = Date.now()): number | null {
@@ -28,9 +31,8 @@ export function score(p: PairLike, now = Date.now()): number {
   const change = Number.isFinite(p.priceChange?.h24) ? Number(p.priceChange?.h24) : 0;
   let s = 0;
 
-  if (liq >= 100_000) s += 30; else if (liq >= 25_000) s += 22; else if (liq >= 10_000) s += 12;
-  if (vol >= 500_000) s += 25; else if (vol >= 100_000) s += 18; else if (vol >= 25_000) s += 10;
-
+  if (liq >= 100_000) s += 30; else if (liq >= 25_000) s += 22; else if (liq >= 10_000) s += 12; else if (liq >= 5_000) s += 6;
+  if (vol >= 500_000) s += 25; else if (vol >= 100_000) s += 18; else if (vol >= 25_000) s += 10; else if (vol >= 5_000) s += 5;
   if (transactions >= 20 && buyShare > 0.5) s += Math.min(15, Math.round((buyShare - 0.5) * 30));
   if (change > 0 && change < 100) s += 10; else if (change >= 100 && change < 200) s += 4;
   if (liq > 0 && (p.fdv ?? 0) > 0 && (p.fdv as number) / liq < 100) s += 10;
@@ -56,13 +58,31 @@ export function riskFlags(p: PairLike, now = Date.now()): string[] {
   if ((p.priceChange?.h24 ?? 0) < -50) flags.push("severe 24h drawdown");
   if ((p.fdv ?? 0) > 0 && liq > 0 && (p.fdv as number) / liq > 100) flags.push("high FDV/liquidity");
   if (vol > 0 && liq === 0) flags.push("missing liquidity data");
-  return flags;
+
+  const security = p.security;
+  const level = security?.riskLevel?.toLowerCase();
+  if (level === "danger") flags.push("RugCheck danger");
+  else if (level === "warning") flags.push("RugCheck warning");
+  if (security?.mintAuthority) flags.push("mint authority active");
+  if (security?.freezeAuthority) flags.push("freeze authority active");
+  if (security?.lpLocked === false || (security?.lpLockedPct !== undefined && security.lpLockedPct < 50)) flags.push("liquidity not sufficiently locked");
+  if (security?.topHoldersPct !== undefined && security.topHoldersPct > 35) flags.push("high holder concentration");
+  for (const risk of security?.risks ?? []) {
+    const riskLevel = risk.level?.toLowerCase();
+    if (riskLevel === "danger" || riskLevel === "high") {
+      const name = risk.name?.trim();
+      if (name && !flags.includes(name)) flags.push(name);
+    }
+  }
+
+  return [...new Set(flags)].slice(0, 8);
 }
 
-/** Market structure is dominant; social is supporting evidence only. */
 export function researchScore(p: PairLike, socialScore = 0, now = Date.now()): number {
   const market = score(p, now);
   const social = Math.max(0, Math.min(100, socialScore));
-  const riskPenalty = Math.min(20, riskFlags(p, now).length * 3);
-  return Math.max(0, Math.min(100, Math.round(market * 0.9 + social * 0.1 - riskPenalty)));
+  const basicRiskPenalty = Math.min(20, riskFlags({ ...p, security: undefined }, now).length * 3);
+  const securityLevel = p.security?.riskLevel?.toLowerCase();
+  const securityPenalty = securityLevel === "danger" ? 30 : securityLevel === "warning" ? 12 : 0;
+  return Math.max(0, Math.min(100, Math.round(market * 0.9 + social * 0.1 - basicRiskPenalty - securityPenalty)));
 }
