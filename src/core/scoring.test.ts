@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
-import { pairAgeHours, riskFlags, score } from "./scoring.js";
+import { pairAgeHours, researchScore, riskFlags, score } from "./scoring.js";
 
 const now = Date.UTC(2026, 0, 1);
 
@@ -23,4 +23,13 @@ test("new pairs receive a score penalty", () => {
 test("risk flags detect basic hazards", () => {
   const flags = riskFlags({ liquidity: { usd: 5_000 }, volume: { h24: 200_000 }, priceChange: { h24: 250 }, pairCreatedAt: now - 2 * 3_600_000 }, now);
   assert.deepEqual(flags, ["low liquidity", "very high volume/liquidity", "very new pair", "extreme 24h move"]);
+});
+
+test("social signal is capped at ten percent of research score", () => {
+  const pair = { liquidity: { usd: 100_000 }, volume: { h24: 500_000 }, priceChange: { h24: 20 }, pairCreatedAt: now - 24 * 3_600_000 };
+  const market = score(pair, now);
+  const withoutSocial = researchScore(pair, 0, now);
+  const withSocial = researchScore(pair, 100, now);
+  assert.equal(withoutSocial, Math.max(0, Math.min(100, Math.round(market * 0.9) - 3)));
+  assert.ok(withSocial - withoutSocial <= 10);
 });
