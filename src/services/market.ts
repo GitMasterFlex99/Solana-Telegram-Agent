@@ -7,9 +7,19 @@ export function isSolanaAddress(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value.trim());
 }
 
+async function fetchWithTimeout(fetchImpl: typeof fetch, input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1], timeoutMs = 10_000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function tokenPairs(address: string, fetchImpl: typeof fetch = fetch): Promise<Pair[]> {
   if (!isSolanaAddress(address)) return [];
-  const response = await fetchImpl(`https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(address)}`);
+  const response = await fetchWithTimeout(fetchImpl, `https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(address)}`);
   if (!response.ok) throw new Error(`DexScreener HTTP ${response.status}`);
   const data = await response.json() as unknown;
   if (!Array.isArray(data)) throw new Error("Unexpected market-data response");
