@@ -24,6 +24,7 @@ export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise
 
 export function discoverCandidates(pairs: DiscoveredPair[], now = Date.now()): DiscoveredPair[] {
   return pairs
+    .filter((p) => p.chainId === "solana")
     .filter((p) => Boolean(p.baseToken?.address))
     .filter((p) => (p.liquidity?.usd ?? 0) >= 10_000)
     .filter((p) => (p.volume?.h24 ?? 0) >= 10_000)
