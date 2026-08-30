@@ -49,6 +49,9 @@ export async function fetchXSignal(symbol: string, address: string, fetchImpl: t
         account: user?.username ?? post.author_id ?? "unknown",
         mentionedAt: post.created_at ? Date.parse(post.created_at) : Date.now(),
         hasEvidence: /\b(github|docs?|contract|website|audit|source|announcement|roadmap)\b/i.test(text),
+        followers: user?.public_metrics?.followers_count,
+        verified: user?.verified,
+        text,
       };
     });
     return { available: true, ...socialSignal(mentions) };
