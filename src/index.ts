@@ -5,7 +5,6 @@ import { analyzeWithOpenAI, buildTokenPrompt } from "./core/ai.js";
 import { createEncryptedAIStore } from "./core/encrypted-ai-store.js";
 import { WatchlistStore } from "./core/watchlist-store.js";
 import { AlertStateStore } from "./core/alert-state-store.js";
-import { parseTwitterAccount } from "./core/twitter-link.js";
 import { tokenPairs } from "./services/market.js";
 import { fetchXSignal } from "./services/x-signals.js";
 import { startAlertMonitor } from "./services/alert-monitor.js";
@@ -20,7 +19,6 @@ const aiStore = process.env.AI_KEY_ENCRYPTION_KEY ? createEncryptedAIStore() : n
 const watchlists = new WatchlistStore();
 const alertStates = new AlertStateStore();
 const pendingAI = new Set<number>();
-const pendingX = new Set<number>();
 
 const money = (n?: number) => !Number.isFinite(n) ? "—" : n! >= 1e6 ? `$${(n! / 1e6).toFixed(1)}M` : n! >= 1e3 ? `$${(n! / 1e3).toFixed(1)}K` : `$${n!.toFixed(0)}`;
 const age = (ts?: number) => {
@@ -70,16 +68,16 @@ async function sendScan(ctx: any) {
 bot.command("start", async ctx => { if (!guard(ctx)) return; await ctx.reply("Solana Meme Agent\n\nSimple by design. Scan markets, inspect risk, optionally add your own AI key, and watch a few tokens.\n\nTrading is disabled.", { reply_markup: menu() }); });
 bot.command("scan", async ctx => { if (guard(ctx)) await sendScan(ctx); });
 bot.command("portfolio", async ctx => { if (guard(ctx)) await ctx.reply("💼 No wallet is connected. Trading is disabled.", { reply_markup: menu() }); });
-bot.command("watch", async ctx => { if (!guard(ctx)) return; const address = ctx.message.text.split(/\s+/)[1] ?? ""; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) { await ctx.reply("Usage: /watch <Solana token address>"); return; } await watchlists.add(ctx.from.id, address); await ctx.reply("⭐ Token added to your watchlist. Alerts run automatically.", { reply_markup: menu() }); });
-bot.command("unwatch", async ctx => { if (!guard(ctx)) return; const address = ctx.message.text.split(/\s+/)[1] ?? ""; if (!address) { await ctx.reply("Usage: /unwatch <Solana token address>"); return; } const removed = await watchlists.remove(ctx.from.id, address); await ctx.reply(removed ? "Removed from your watchlist." : "That token was not on your watchlist."); });
+bot.command("watch", async ctx => { if (!guard(ctx)) return; const userId = ctx.from?.id; const address = ctx.message?.text?.split(/\s+/)[1] ?? ""; if (userId === undefined) return; if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) { await ctx.reply("Usage: /watch <Solana token address>"); return; } await watchlists.add(userId, address); await ctx.reply("⭐ Token added to your watchlist. Alerts run automatically.", { reply_markup: menu() }); });
+bot.command("unwatch", async ctx => { if (!guard(ctx)) return; const userId = ctx.from?.id; const address = ctx.message?.text?.split(/\s+/)[1] ?? ""; if (userId === undefined) return; if (!address) { await ctx.reply("Usage: /unwatch <Solana token address>"); return; } const removed = await watchlists.remove(userId, address); await ctx.reply(removed ? "Removed from your watchlist." : "That token was not on your watchlist."); });
 bot.command("settings", async ctx => { if (guard(ctx)) await ctx.reply(settingsText(ctx.from?.id), { reply_markup: settingsMenu() }); });
 bot.command("help", async ctx => { if (guard(ctx)) await ctx.reply("/scan — find candidates\n/watch <address> — enable alerts\n/unwatch <address> — remove alerts\n/settings — optional AI and X signals\n\nNever send a seed phrase or private key. Trading is disabled.", { reply_markup: menu() }); });
 
 bot.callbackQuery("scan", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await sendScan(ctx); });
-bot.callbackQuery("watchlist", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const items = await watchlists.list(ctx.from.id); await ctx.reply(items.length ? `⭐ Watchlist\n\n${items.map((x, i) => `${i + 1}. ${x.label ?? x.address}`).join("\n")}` : "⭐ Your watchlist is empty.\n\nUse /watch <token address> from a token screen.", { reply_markup: menu() }); });
+bot.callbackQuery("watchlist", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const items = await watchlists.list(userId); await ctx.reply(items.length ? `⭐ Watchlist\n\n${items.map((x, i) => `${i + 1}. ${x.label ?? x.address}`).join("\n")}` : "⭐ Your watchlist is empty.\n\nUse /watch <token address> from a token screen.", { reply_markup: menu() }); });
 bot.callbackQuery("settings", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply(settingsText(ctx.from?.id), { reply_markup: settingsMenu() }); });
-bot.callbackQuery("ai_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const connected = Boolean(aiStore?.has(String(ctx.from.id))); const kb = new InlineKeyboard(); if (connected) kb.text("Remove AI key", "ai_remove"); else kb.text("Connect OpenAI", "ai_add"); kb.row().text("⬅️ Settings", "settings"); await ctx.reply(`🤖 AI Analysis\n\n${connected ? "Connected — token screens can use your key." : "Optional — the bot works normally without AI."}\n\nFor safety, key setup only works in a private chat and the key message is deleted after processing.`, { reply_markup: kb }); });
-bot.callbackQuery("ai_add", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; if (ctx.chat.type !== "private") { await ctx.reply("Connect an AI key only from a private chat."); return; } pendingAI.add(ctx.from.id); await ctx.reply("Send your OpenAI API key as your next message. The message will be deleted after the key is processed."); });
+bot.callbackQuery("ai_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; const userId = ctx.from?.id; if (userId === undefined) return; const connected = Boolean(aiStore?.has(String(userId))); const kb = new InlineKeyboard(); if (connected) kb.text("Remove AI key", "ai_remove"); else kb.text("Connect OpenAI", "ai_add"); kb.row().text("⬅️ Settings", "settings"); await ctx.reply(`🤖 AI Analysis\n\n${connected ? "Connected — token screens can use your key." : "Optional — the bot works normally without AI."}\n\nFor safety, key setup only works in a private chat and the key message is deleted after processing.`, { reply_markup: kb }); });
+bot.callbackQuery("ai_add", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; if (ctx.chat?.type !== "private") { await ctx.reply("Connect an AI key only from a private chat."); return; } pendingAI.add(ctx.from.id); await ctx.reply("Send your OpenAI API key as your next message. The message will be deleted after the key is processed."); });
 bot.callbackQuery("ai_remove", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx) || !aiStore) return; aiStore.remove(String(ctx.from.id)); await ctx.reply("OpenAI key removed.", { reply_markup: settingsMenu() }); });
 bot.callbackQuery("x_settings", async ctx => { await ctx.answerCallbackQuery(); if (!guard(ctx)) return; await ctx.reply(process.env.X_BEARER_TOKEN ? "𝕏 X signals are enabled. The bot looks for recent public posts mentioning the token and scores independent accounts, early mentions and evidence-style language. X API access is optional." : "𝕏 X signals are currently unavailable. Set X_BEARER_TOKEN on the bot server to enable them. The rest of the bot does not depend on X.", { reply_markup: settingsMenu() }); });
 bot.callbackQuery("back", async ctx => { await ctx.answerCallbackQuery(); if (guard(ctx)) await ctx.reply("Main menu", { reply_markup: menu() }); });
@@ -87,22 +85,18 @@ bot.callbackQuery(/^watch:(.+)$/, async ctx => { await ctx.answerCallbackQuery()
 
 bot.on("message:text", async ctx => {
   if (!guard(ctx)) return;
-  const userId = ctx.from.id;
-  const text = ctx.message.text.trim();
+  const userId = ctx.from?.id;
+  if (userId === undefined) return;
+  const text = ctx.message?.text?.trim() ?? "";
   if (pendingAI.has(userId)) {
     pendingAI.delete(userId);
     try {
-      if (ctx.chat.type !== "private") throw new Error("AI key setup requires a private chat");
+      if (ctx.chat?.type !== "private") throw new Error("AI key setup requires a private chat");
       aiStore?.set(String(userId), text);
       await ctx.deleteMessage().catch(() => undefined);
       await ctx.reply("OpenAI key saved securely. The key message was deleted.", { reply_markup: settingsMenu() });
     } catch { await ctx.deleteMessage().catch(() => undefined); await ctx.reply("Couldn't save that key. Check the key format and server encryption configuration."); }
     return;
-  }
-  if (pendingX.has(userId)) {
-    pendingX.delete(userId);
-    const account = parseTwitterAccount(text);
-    if (account) await ctx.reply(`X account noted: @${account.handle}\n${account.url}`);
   }
 });
 
