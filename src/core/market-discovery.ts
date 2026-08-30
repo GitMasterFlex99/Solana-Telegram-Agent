@@ -13,6 +13,7 @@ export type DiscoveredPair = {
   marketCap?: number;
   pairCreatedAt?: number;
   txns?: { h24?: { buys?: number; sells?: number } };
+  security?: { riskLevel?: string };
 };
 
 type TokenProfile = { chainId?: string; tokenAddress?: string };
@@ -28,58 +29,43 @@ async function fetchJson<T>(fetchImpl: typeof fetch, url: string): Promise<T> {
 
 export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise<DiscoveredPair[]> {
   const profiles = await fetchJson<TokenProfile[]>(fetchImpl, "https://api.dexscreener.com/token-profiles/latest/v1");
-  const addresses = [...new Set(
-    profiles.filter((profile) => profile.chainId === "solana")
-      .map((profile) => profile.tokenAddress)
-      .filter((address): address is string => Boolean(address) && address !== SOL_MINT)
-  )].slice(0, MAX_DISCOVERY_PROFILES);
-
+  const addresses = [...new Set(profiles.filter(p => p.chainId === "solana").map(p => p.tokenAddress).filter((a): a is string => Boolean(a) && a !== SOL_MINT))].slice(0, MAX_DISCOVERY_PROFILES);
   const pairs: DiscoveredPair[] = [];
   for (let offset = 0; offset < addresses.length; offset += TOKEN_BATCH_SIZE) {
     const batch = addresses.slice(offset, offset + TOKEN_BATCH_SIZE);
     try {
-      const batchPairs = await fetchJson<DiscoveredPair[]>(
-        fetchImpl,
-        `https://api.dexscreener.com/tokens/v1/solana/${batch.map(encodeURIComponent).join(",")}`
-      );
-      pairs.push(...batchPairs.filter((pair) => pair.chainId === "solana"));
-    } catch {
-      // Continue if one discovery batch fails.
-    }
+      const batchPairs = await fetchJson<DiscoveredPair[]>(fetchImpl, `https://api.dexscreener.com/tokens/v1/solana/${batch.map(encodeURIComponent).join(",")}`);
+      pairs.push(...batchPairs.filter(p => p.chainId === "solana"));
+    } catch { /* keep other batches */ }
   }
-
-  const bestByToken = new Map<string, DiscoveredPair>();
+  const byToken = new Map<string, DiscoveredPair>();
   for (const pair of pairs) {
     const address = pair.baseToken?.address;
     if (!address || address === SOL_MINT || pair.baseToken?.symbol?.toUpperCase() === "SOL") continue;
-    const current = bestByToken.get(address);
-    bestByToken.set(address, current ? betterPair(current, pair) : pair);
+    const current = byToken.get(address);
+    byToken.set(address, current ? betterPair(current, pair) : pair);
   }
-
-  return [...bestByToken.values()];
+  return [...byToken.values()];
 }
 
 function betterPair(a: DiscoveredPair, b: DiscoveredPair): DiscoveredPair {
-  const liquidityA = a.liquidity?.usd ?? 0;
-  const liquidityB = b.liquidity?.usd ?? 0;
-  if (liquidityA !== liquidityB) return liquidityA > liquidityB ? a : b;
+  const la = a.liquidity?.usd ?? 0, lb = b.liquidity?.usd ?? 0;
+  if (la !== lb) return la > lb ? a : b;
   return (a.volume?.h24 ?? 0) >= (b.volume?.h24 ?? 0) ? a : b;
 }
 
 export function discoverCandidates(pairs: DiscoveredPair[], now = Date.now()): DiscoveredPair[] {
-  const candidates = pairs
-    .filter((p) => p.chainId === "solana")
-    .filter((p) => p.baseToken?.address !== SOL_MINT)
-    .filter((p) => p.baseToken?.symbol?.toUpperCase() !== "SOL")
-    .filter((p) => Boolean(p.baseToken?.address))
-    .filter((p) => (p.liquidity?.usd ?? 0) >= 5_000)
-    .filter((p) => (p.volume?.h24 ?? 0) >= 5_000)
-    .filter((p) => {
+  const candidates = pairs.filter(p => p.chainId === "solana")
+    .filter(p => p.baseToken?.address !== SOL_MINT)
+    .filter(p => p.baseToken?.symbol?.toUpperCase() !== "SOL")
+    .filter(p => Boolean(p.baseToken?.address))
+    .filter(p => p.security?.riskLevel?.toLowerCase() !== "danger")
+    .filter(p => (p.liquidity?.usd ?? 0) >= 5_000)
+    .filter(p => (p.volume?.h24 ?? 0) >= 5_000)
+    .filter(p => {
       if (!p.pairCreatedAt) return true;
-      const ageHours = (now - p.pairCreatedAt) / 3_600_000;
-      return ageHours >= 0.25;
+      return (now - p.pairCreatedAt) / 3_600_000 >= 0.25;
     });
-
   const byToken = new Map<string, DiscoveredPair>();
   for (const pair of candidates) {
     const address = pair.baseToken!.address!;
