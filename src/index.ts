@@ -8,13 +8,20 @@ import { AlertStateStore } from "./core/alert-state-store.js";
 import { tokenPairs } from "./services/market.js";
 import { fetchXSignal } from "./services/x-signals.js";
 import { startAlertMonitor } from "./services/alert-monitor.js";
+import { validateProductionConfig } from "./core/production-guards.js";
 
 type Pair = DiscoveredPair & { priceChange?: { h1?: number; h24?: number } };
 type RankedCandidate = { pair: Pair; social: Awaited<ReturnType<typeof fetchXSignal>>; researchScore: number };
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
+const configErrors = validateProductionConfig({
+  telegramToken: process.env.TELEGRAM_BOT_TOKEN,
+  telegramChatId: process.env.TELEGRAM_CHAT_ID,
+  aiEncryptionKey: process.env.AI_KEY_ENCRYPTION_KEY,
+});
+if (configErrors.length) throw new Error(`Invalid production configuration: ${configErrors.join("; ")}`);
+
+const token = process.env.TELEGRAM_BOT_TOKEN!;
 const allowedChatId = process.env.TELEGRAM_CHAT_ID;
-if (!token) throw new Error("Missing TELEGRAM_BOT_TOKEN");
 const bot = new Bot(token);
 const aiStore = process.env.AI_KEY_ENCRYPTION_KEY ? createEncryptedAIStore() : null;
 const watchlists = new WatchlistStore();
@@ -188,11 +195,11 @@ bot.callbackQuery(/^ai:(.+)$/, async ctx => {
     const social = await fetchXSignal(p.baseToken?.symbol ?? "", p.baseToken?.address ?? "");
     const finalScore = researchScore(p, social.available ? social.score : 0);
     const prompt = buildTokenPrompt({ symbol: p.baseToken?.symbol ?? "Unknown", score: finalScore, riskFlags: riskFlags(p), social: social.available ? `${social.score}/100 — ${social.summary}` : "unavailable", marketContext: `liquidity=${money(p.liquidity?.usd)}, 24h volume=${money(p.volume?.h24)}, 24h change=${p.priceChange?.h24 ?? "unknown"}%` });
-    const answer = await analyzeWithOpenAI(prompt, { apiKey: aiStore.get(String(ctx.from.id)), model: process.env.AI_MODEL });
-    await ctx.reply(`🤖 AI Analysis\n\n${answer}`, { reply_markup: menu() });
+    const result = await analyzeWithOpenAI(aiStore.get(String(ctx.from.id))!, prompt);
+    await ctx.reply(result, { reply_markup: menu() });
   } catch (e) { console.error(e); await ctx.reply("AI analysis failed. Check your key and try again.", { reply_markup: menu() }); }
 });
 
-bot.catch(err => console.error("Bot error", err));
 startAlertMonitor(bot, watchlists, alertStates);
-bot.start();
+bot.catch((err) => console.error("Telegram bot error", err));
+await bot.start();
