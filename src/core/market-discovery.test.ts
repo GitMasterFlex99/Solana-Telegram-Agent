@@ -3,6 +3,7 @@ import test from "node:test";
 import { discoverCandidates } from "./market-discovery.js";
 
 const now = Date.UTC(2026, 0, 1);
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 test("discovery keeps Solana pairs with enough liquidity and volume", () => {
   const pairs = [
@@ -12,6 +13,14 @@ test("discovery keeps Solana pairs with enough liquidity and volume", () => {
     { chainId: "solana", baseToken: { address: "D" }, liquidity: { usd: 20_000 }, volume: { h24: 5_000 } }
   ];
   assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["A"]);
+});
+
+test("discovery excludes native SOL from meme candidates", () => {
+  const pairs = [
+    { chainId: "solana", baseToken: { address: SOL_MINT, symbol: "SOL" }, liquidity: { usd: 100_000_000 }, volume: { h24: 100_000_000 } },
+    { chainId: "solana", baseToken: { address: "MEME", symbol: "MEME" }, liquidity: { usd: 100_000 }, volume: { h24: 100_000 } }
+  ];
+  assert.deepEqual(discoverCandidates(pairs, now).map(p => p.baseToken?.address), ["MEME"]);
 });
 
 test("discovery rejects pairs younger than 15 minutes", () => {
