@@ -15,6 +15,8 @@ export type DiscoveredPair = {
   txns?: { h24?: { buys?: number; sells?: number } };
 };
 
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+
 export async function fetchSolanaPairs(fetchImpl: typeof fetch = fetch): Promise<DiscoveredPair[]> {
   const response = await fetchImpl("https://api.dexscreener.com/latest/dex/search?q=SOL");
   if (!response.ok) throw new Error(`DexScreener request failed: ${response.status}`);
@@ -37,6 +39,7 @@ function betterPair(a: DiscoveredPair, b: DiscoveredPair): DiscoveredPair {
 export function discoverCandidates(pairs: DiscoveredPair[], now = Date.now()): DiscoveredPair[] {
   const candidates = pairs
     .filter((p) => p.chainId === "solana")
+    .filter((p) => p.baseToken?.address !== SOL_MINT)
     .filter((p) => Boolean(p.baseToken?.address))
     .filter((p) => (p.liquidity?.usd ?? 0) >= 10_000)
     .filter((p) => (p.volume?.h24 ?? 0) >= 10_000)
