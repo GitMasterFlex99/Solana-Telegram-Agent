@@ -41,3 +41,14 @@ export function riskFlags(p: PairLike, now = Date.now()): string[] {
   if ((p.fdv ?? 0) > 0 && liq > 0 && (p.fdv as number) / liq > 100) flags.push("high FDV/liquidity");
   return flags;
 }
+
+/**
+ * Combines market structure with a small social component. Social can improve
+ * discovery, but it can never contribute more than 10% of the final score.
+ */
+export function researchScore(p: PairLike, socialScore = 0, now = Date.now()): number {
+  const market = score(p, now);
+  const social = Math.max(0, Math.min(100, socialScore));
+  const riskPenalty = Math.min(15, riskFlags(p, now).length * 3);
+  return Math.max(0, Math.min(100, Math.round(market * 0.9 + social * 0.1 - riskPenalty)));
+}
