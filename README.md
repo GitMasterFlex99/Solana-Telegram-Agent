@@ -1,139 +1,165 @@
-# Solana Telegram Agent
+# Solana Research Agent
 
-A deliberately simple, read-only Telegram bot for researching Solana meme-coin markets.
+A local, read-only Solana market research agent for Windows Terminal and Linux.
 
-**Workflow:** Scan → investigate → optionally use AI → watch.
+The interface is intentionally small. The intelligence happens behind the scenes: market discovery, liquidity/volume analysis, risk scoring, optional X signals, and optional AI analysis through local Ollama or a user's own OpenAI API key.
 
-The project is intentionally not a trading terminal. Wallet connection, signing and automated trading are disabled.
+## Safety
+
+This project is research-only.
+
+- No wallet connection.
+- No seed phrases or private keys.
+- No transaction signing.
+- No automated trading.
+- No crypto mining, phishing, card fraud/testing, spam, pirated content, or other illegal functionality.
+- Public market data is treated as evidence, not a guarantee of safety or profit.
 
 ## What it does
 
-### Market research
+### Market discovery
 
-`/scan` uses public Solana market data to filter and rank candidates using liquidity, 24h volume, buy/sell activity, price movement, pair age, FDV/liquidity relationship and structural risk flags.
+`scan` uses public DexScreener market data to find Solana candidates. It removes native SOL, duplicate token markets, explicitly dangerous markets, very young pairs, and markets below the basic liquidity/volume floor.
 
-The research score favors market structure over raw hype. The strongest market pair is used when a token is investigated.
+Ranking considers liquidity, volume, volume/liquidity, transaction balance, momentum, pair age and FDV/liquidity. Extreme risk conditions can cap the final research score instead of allowing hype to overwhelm risk.
 
-### Social research
+### Token research
 
-X signals are optional. With `X_BEARER_TOKEN`, recent public posts are evaluated for independent accounts, early mentions, evidence-backed language, credible accounts, promotional language and repeated/copied posts.
+`analyze <CA>` accepts a Solana contract address and selects the strongest available Solana market for that token. It reports price, liquidity, volume, momentum, age, market score, research score and risk flags.
 
-Social evidence is deliberately supporting evidence only and contributes a small part of the final research score. Without X access, the rest of the bot continues to work.
+### Optional X signals
 
-### Token investigation
+Set `X_BEARER_TOKEN` to enable recent public X-post analysis. X is supporting evidence only and has a small influence on the final score. Without it, the core workflow remains fully usable.
 
-A candidate can be opened for research showing its score, market metrics, age, risk flags and social signal. AI analysis is available only when the user has connected their own key.
+### Optional AI
 
-### Optional user-provided AI
+Ollama is the default local AI provider, so AI analysis can run without sending the research to a paid cloud API.
 
-Users can connect their own OpenAI API key from the private-chat Settings flow. The key is encrypted at rest, never displayed back, and the Telegram message containing it is deleted after processing. Setup expires after five minutes and keys can be removed from Settings.
+OpenAI is also supported when explicitly selected with `AI_PROVIDER=openai` and `OPENAI_API_KEY`.
 
-AI is used for evidence-based bull/bear analysis, uncertainty and invalidation conditions. It is not used to promise price targets or guarantee outcomes.
+AI receives the observed market evidence and is instructed to separate facts from interpretation, identify uncertainty, and give an invalidation condition. It does not place trades or promise outcomes.
 
-### Watchlist and alerts
-
-Use `/watch <solana-token-address>` and `/unwatch <solana-token-address>`. Watched tokens are checked approximately every five minutes.
-
-Alerts use threshold hysteresis and monitor meaningful changes in research score, momentum, price, volume and liquidity. The monitor has bounded API retries, timeouts, concurrency limits and protection against overlapping cycles.
-
-Watchlists and alert state persist across restarts using validated JSON state with atomic writes.
-
-## Reliability and safety
-
-- Read-only by design.
-- No seed phrase, private key or wallet signing is required.
-- No automated trading.
-- Market requests have timeouts and bounded retries for transient failures.
-- Individual token failures do not stop the alert monitor.
-- Persistent state is validated before use and written atomically.
-- Production configuration is validated during startup.
-- Optional AI and X integrations fail independently of the core research workflow.
-
-Never put secrets, seed phrases or private keys in source code or commits.
-
-## Configuration
-
-Required:
+### Local watchlist and alerts
 
 ```text
-TELEGRAM_BOT_TOKEN=...
-AI_KEY_ENCRYPTION_KEY=...
+watch <CA>
+unwatch <CA>
+watchlist
+monitor
 ```
 
-`AI_KEY_ENCRYPTION_KEY` must be a base64-encoded 32-byte key when user-provided AI keys are enabled.
+Watchlist state is stored locally in `data/watchlists.json`. Alert state is stored locally in `data/alert-state.json`. Writes are validated and atomic. `monitor` checks watched tokens periodically and prints meaningful threshold changes to the terminal.
 
-Optional:
+## Requirements
 
-```text
-TELEGRAM_CHAT_ID=...
-AI_MODEL=gpt-5.6-luna
-AI_KEY_STORE_PATH=./data/ai-keys.json
-X_BEARER_TOKEN=...
-```
+- Node.js 22+
+- Windows Terminal, PowerShell, Command Prompt, or Linux shell
+- Internet connection for public market/X data
+- Ollama only if you want local AI analysis
 
-`TELEGRAM_CHAT_ID` restricts the bot to the configured chat when supplied.
-
-Keep encryption keys and API tokens outside the repository and configure them through the deployment environment.
-
-## Run locally
+## Install
 
 ```bash
 npm install
-cp .env.example .env
 npm run typecheck
 npm test
-npm start
+npm run build
 ```
 
-## Bot commands
-
-- `/start` — open the main menu
-- `/scan` — find current candidates
-- `/watch <address>` — add a token to the watchlist
-- `/unwatch <address>` — remove a token
-- `/settings` — configure optional AI and X signals
-- `/portfolio` — read-only placeholder; wallet trading is disabled
-- `/help` — show safety/help information
-
-The interface stays intentionally small. Most of the complexity lives behind the scenes in the research, scoring, social-analysis and alert systems.
-
-## Development
+## Run
 
 ```bash
-npm run typecheck
-npm test
+npm start -- scan
+npm start -- analyze <SOLANA_TOKEN_CA>
+npm start -- ai <SOLANA_TOKEN_CA>
+npm start -- watch <SOLANA_TOKEN_CA>
+npm start -- unwatch <SOLANA_TOKEN_CA>
+npm start -- watchlist
+npm start -- monitor
+npm start -- help
 ```
 
-CI runs the same checks on changes.
+For a compiled build:
+
+```bash
+npm run build
+node dist/index.js scan
+```
+
+## Ollama
+
+Install Ollama separately, make sure it is running, and pull a model:
+
+```bash
+ollama pull llama3.2
+```
+
+The agent defaults to:
+
+```text
+AI_PROVIDER=ollama
+AI_MODEL=llama3.2
+AI_BASE_URL=http://127.0.0.1:11434
+```
+
+You can change the model or local Ollama endpoint through environment variables.
+
+## OpenAI (optional)
+
+```text
+AI_PROVIDER=openai
+OPENAI_API_KEY=your-key
+```
+
+Do not commit API keys. Environment variables are preferred.
+
+## X (optional)
+
+```text
+X_BEARER_TOKEN=your-token
+```
+
+The X integration is optional. If it is unavailable or fails, market research continues without it.
+
+## Windows PowerShell example
+
+```powershell
+$env:AI_PROVIDER="ollama"
+$env:AI_MODEL="llama3.2"
+npm start -- scan
+```
+
+## Linux example
+
+```bash
+export AI_PROVIDER=ollama
+export AI_MODEL=llama3.2
+npm start -- scan
+```
 
 ## Architecture
 
 ```text
-Telegram
-   │
-   ▼
-Bot handlers ────────────────┐
-   │                         │
-   ▼                         ▼
-Market discovery          User state
-   │                    watchlists/alerts
-   ▼                         │
-Scoring ◄── X signals        │
-   │                         │
-   └──────────┬──────────────┘
-              ▼
-        Token investigation
-              │
-        optional user AI
-              │
-              ▼
-          Telegram alert
+Windows Terminal / Linux shell
+             |
+             v
+          Local CLI
+             |
+      +------+------+
+      |             |
+ Market data     Local state
+      |          watch/alerts
+      v             |
+ Discovery -> Risk -> Scoring
+      |             |
+      +------> X --+
+             |
+             v
+       Optional AI
+      Ollama/OpenAI
+             |
+             v
+       Research output
 ```
 
-The core research path does not depend on AI or X. This keeps the bot useful for users who do not want to pay for additional APIs.
-
-## Project status
-
-The research MVP is read-only and production-oriented. The current focus is reliability, research quality and low-noise alerts rather than adding trading features or a large UI.
-
-Future work should be evaluated against that constraint: improvements should make the existing workflow smarter, safer or more reliable before adding new surface area.
+The project deliberately avoids a large UI. New functionality should make the existing research workflow more accurate, safer or more reliable before adding new surface area.
